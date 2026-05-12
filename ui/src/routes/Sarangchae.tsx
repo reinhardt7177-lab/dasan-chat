@@ -257,26 +257,28 @@ export function Sarangchae() {
 
       {/* 하단 컨트롤 바 */}
       <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-6">
-        <div className="lacquer-surface mx-auto flex w-full max-w-3xl items-center justify-center gap-3 rounded-md px-5 py-4">
+        <div className="lacquer-surface mx-auto flex w-full max-w-3xl flex-col items-center justify-center gap-2 rounded-md px-5 py-4">
           <button
             onClick={() => (state.micOn ? stopLive() : startLive())}
-            className={`relative flex h-16 w-16 select-none items-center justify-center rounded-full border transition ${
+            className={`relative flex h-20 w-20 select-none items-center justify-center rounded-full border-2 transition-all duration-200 ${
               state.micOn
-                ? "scale-110 border-seal-bright bg-seal text-parchment shadow-[0_0_24px_rgba(139,26,26,0.6)]"
-                : "border-gold-soft/40 bg-wood-2/70 text-gold hover:bg-wood-2"
+                ? "border-seal-bright bg-seal text-parchment shadow-[0_0_32px_rgba(139,26,26,0.7)] scale-110"
+                : "border-gold-soft/40 bg-wood-2/70 text-gold hover:bg-wood-2 hover:scale-105"
             }`}
-            aria-label={state.micOn ? "마이크 끄기" : "마이크 켜기"}
+            aria-label={state.micOn ? "대화 종료" : "대화 시작"}
             aria-pressed={state.micOn}
           >
-            <MicIcon />
+            {state.micOn ? <PhoneOffIcon /> : <PhoneIcon />}
             {state.micOn && (
-              <span className="pointer-events-none absolute inset-0 animate-ping rounded-full bg-seal/40" />
+              <span className="pointer-events-none absolute inset-0 animate-ping rounded-full bg-seal/30" />
             )}
           </button>
-          <div className="text-sm text-parchment/80">
+          <div className="text-center text-sm text-parchment/80">
             {state.micOn
-              ? "🎤 듣고 계시네… 다시 누르면 전송"
-              : "마이크 버튼을 눌러 말씀하시구려"}
+              ? state.status === "speaking"
+                ? "선생님 말씀 중… 기다리시구려"
+                : "말씀하시구려 — 잠시 멈추면 선생님이 답하시리"
+              : "버튼을 눌러 다산 선생님과 대화를 시작하시구려"}
           </div>
         </div>
 
@@ -309,15 +311,15 @@ function StatusBadge({ status }: { status: Status }) {
     { text: string; cls: string }
   > = {
     idle: {
-      text: "🎤 마이크 버튼을 눌러 대화를 시작하시구려",
+      text: "버튼을 눌러 다산 선생님과 대화를 시작하시구려",
       cls: "bg-wood/70 text-gold",
     },
     listening: {
-      text: "🎤 듣고 있네… 말씀하시구려 (다시 누르면 종료)",
+      text: "🎤 말씀하시구려 — 잠시 멈추면 선생님이 답하시리",
       cls: "bg-jade/80 text-parchment",
     },
     speaking: {
-      text: "💬 선생님께서 말씀하시는 중",
+      text: "💬 선생님께서 말씀하시는 중… 기다리시구려",
       cls: "bg-seal/85 text-parchment",
     },
   };
@@ -331,21 +333,18 @@ function StatusBadge({ status }: { status: Status }) {
   );
 }
 
-function MicIcon() {
+function PhoneIcon() {
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      className="h-7 w-7"
-      fill="none"
-      viewBox="0 0 24 24"
-      strokeWidth="1.5"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M12 18.75v1.5m0-1.5a6.75 6.75 0 01-6.75-6.75M12 18.75a6.75 6.75 0 006.75-6.75M12 15a3.75 3.75 0 003.75-3.75V6.75a3.75 3.75 0 10-7.5 0v4.5A3.75 3.75 0 0012 15z"
-      />
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+    </svg>
+  );
+}
+
+function PhoneOffIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 3.75L18 6m0 0l2.25 2.25M18 6l2.25-2.25M18 6l-2.25 2.25m1.5 13.5c-8.284 0-15-6.716-15-15V4.5A2.25 2.25 0 014.5 2.25h1.372c.516 0 .966.351 1.091.852l1.106 4.423c.11.44-.055.902-.417 1.173l-1.293.97a1.125 1.125 0 00-.38 1.21 12.035 12.035 0 007.143 7.143c.441.162.928-.004 1.21-.38l.97-1.293c.271-.363.734-.527 1.173-.417l4.423 1.106c.5.125.852.575.852 1.091V19.5a2.25 2.25 0 01-2.25 2.25h-2.25z" />
     </svg>
   );
 }
