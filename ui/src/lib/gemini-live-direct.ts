@@ -73,6 +73,14 @@ export class GeminiLiveDirect {
     });
   }
 
+  /** 16kHz Int16 PCM 청크(base64)를 Gemini Live에 실시간 스트리밍. VAD가 발화 끝 감지. */
+  sendAudio(base64Pcm: string): void {
+    if (!this.session) return;
+    this.session.sendRealtimeInput({
+      media: { mimeType: "audio/pcm;rate=16000", data: base64Pcm },
+    });
+  }
+
   async close(): Promise<void> {
     if (this.session) {
       try {
