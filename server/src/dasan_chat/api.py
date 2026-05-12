@@ -162,10 +162,11 @@ def _build_live_config() -> LiveConnectConfig:
     return LiveConnectConfig(
         system_instruction=voice_prompt(),
         response_modalities=[Modality.AUDIO],
-        # input transcription에 ko-KR 강제. 다산챗봇은 12-2025에서 거부 보고됐지만
-        # latest 모델은 SDK 타입 spec대로 받을 가능성 → 일단 시도. 거부되면 즉시 503으로 보임.
-        # 이게 한국어 입력을 "<noise> ها" 식 외국어로 오인하는 문제의 직접 처방.
-        input_audio_transcription=AudioTranscriptionConfig(language_codes=["ko-KR"]),
+        # language_codes=["ko-KR"]는 SDK type spec에는 있으나 native-audio latest도
+        # "language_codes parameter not supported"로 거부 (2026-05-13 확인 — WS setup
+        # 즉시 끊김). 따라서 SDK 거짓말이고 endpoint가 아직 지원 안 함. 일단 제거하고
+        # 입력 인식 문제는 별도 (half-cascade 모델 / Cloud STT 분리)로 처방.
+        input_audio_transcription=AudioTranscriptionConfig(),
         output_audio_transcription=AudioTranscriptionConfig(),
         speech_config=SpeechConfig(
             language_code="ko-KR",
