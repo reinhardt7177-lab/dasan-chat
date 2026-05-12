@@ -4,15 +4,16 @@ import { Link } from "react-router-dom";
 import { postTranscribe } from "../lib/api";
 import { AudioPlayer } from "../lib/audio-player";
 import { AudioRecorder } from "../lib/audio-recorder";
-import { LiveSocket, type ServerMessage } from "../lib/live-ws";
+import { GeminiLiveDirect } from "../lib/gemini-live-direct";
 import { chunksToWavBase64 } from "../lib/wav";
 import { Character } from "../components/Character";
 
-// 사랑채(음성) 페이지.
+// 사랑채(음성) 페이지 — Client-to-Server 패턴.
+// 브라우저가 @google/genai SDK로 Gemini Live에 직접 연결.
 // 라이프사이클:
-//  - mount      : WS connect + AudioPlayer 인스턴스 준비. (마이크 권한 미요청)
-//  - mic 토글ON : 사용자 제스처로 AudioContext resume + AudioRecorder.start
-//  - mic 토글OFF: AudioRecorder.stop. WS는 유지.
+//  - mount      : AudioPlayer 인스턴스 준비. (마이크·Gemini 연결은 PTT 시점에)
+//  - mic 토글ON : AudioContext resume + AudioRecorder.start
+//  - mic 토글OFF: 녹음 중단 → /api/transcribe → 새 GeminiLiveDirect 세션 → 음성 응답
 //  - unmount    : 모두 정리.
 
 type Status = "connecting" | "idle" | "listening" | "transcribing" | "speaking";
@@ -95,9 +96,9 @@ export function Sarangchae() {
   // 외부 객체들 ref 보존 (재렌더 영향 X).
   const recorderRef = useRef<AudioRecorder | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
-  /** 현재 한 turn 처리 중인 WebSocket. 응답 다 받으면 close되고 null로 돌아감.
+  /** 현재 한 turn 처리 중인 Gemini Live 직접 세션. 응답 다 받으면 close.
    *  매 PTT마다 새 인스턴스를 만들어 Gemini Live session corruption 회피. */
-  const activeWsRef = useRef<LiveSocket | null>(null);
+  const activeWsRef = useRef<GeminiLiveDirect | null>(null);
   /** 응답 음성 chunk가 마지막으로 도착한 후 일정 시간 더 안 오면 turn 종료로 간주, ws 닫음. */
   const turnEndTimerRef = useRef<number | null>(null);
   /** 1.2s 청크 없으면 입 다물기 (캐릭터 lipsync safety net). */
@@ -235,27 +236,29 @@ export function Sarangchae() {
       }
       dispatch({ type: "heardChunk", text: cleaned });
 
-      // 매 turn 새 WS — Gemini Live SDK가 한 세션에서 두 번 연속 turn을 처리 못함을
-      // 우회. 응답 다 받으면 close, 다음 PTT는 또 새 인스턴스.
+      // 매 turn 새 GeminiLiveDirect — 한 세션 재사용 시 SDK 상태 오염 우회.
       const player = playerRef.current;
       if (!player) return;
-      const ws = new LiveSocket();
-      activeWsRef.current = ws;
-      ws.on({
-        onMessage: (msg) => {
-          handleServerMessage(msg, dispatch, player);
-          if (msg.type === "audio") {
-            // 새 chunk 도착할 때마다 close 타이머 reset (4초 idle 후 종료).
-            scheduleTurnEnd();
-          }
-          if (msg.type === "turn_complete") {
-            // server가 명시적으로 종료 신호 주면 즉시 close.
-            scheduleTurnEnd(200);
-          }
+      const session = new GeminiLiveDirect();
+      activeWsRef.current = session;
+      session.on({
+        onAudio: (base64Pcm) => {
+          player.play(base64Pcm);
+          scheduleTurnEnd(); // chunk 도착마다 4초 타이머 리셋
+        },
+        onOutputTranscript: (text) => {
+          dispatch({ type: "spokenChunk", text });
+        },
+        onTurnComplete: () => {
+          dispatch({ type: "turnComplete" });
+          scheduleTurnEnd(200); // 즉시 종료
+        },
+        onInterrupted: () => {
+          player.reset();
+          dispatch({ type: "interrupted" });
         },
         onClose: () => {
-          // 서버가 먼저 끊은 경우 정리.
-          if (activeWsRef.current === ws) {
+          if (activeWsRef.current === session) {
             activeWsRef.current = null;
             if (turnEndTimerRef.current !== null) {
               window.clearTimeout(turnEndTimerRef.current);
@@ -263,19 +266,23 @@ export function Sarangchae() {
             }
           }
         },
+        onError: (err) => {
+          dispatch({ type: "error", message: `선생님 연결 오류: ${err.message}` });
+          dispatch({ type: "status", value: "idle" });
+        },
       });
-      ws.connect();
-      const ok = await ws.waitOpen(15000);
-      if (!ok) {
+
+      try {
+        await session.connect(); // 직접 연결 (SDK가 열릴 때까지 대기)
+      } catch (connErr) {
+        const msg = connErr instanceof Error ? connErr.message : String(connErr);
         dispatch({ type: "status", value: "idle" });
-        dispatch({
-          type: "error",
-          message: "선생님과 연결이 닿지 않았네. 다시 여쭙어 주시구려.",
-        });
+        dispatch({ type: "error", message: `선생님과 연결이 닿지 않았네: ${msg}` });
         activeWsRef.current = null;
         return;
       }
-      ws.sendText(cleaned);
+
+      await session.sendText(cleaned);
       dispatch({ type: "status", value: "speaking" });
       // 응답 chunk가 한 번도 안 와도 무한 대기 안 하게 안전망.
       scheduleTurnEnd(15000);
@@ -399,36 +406,6 @@ export function Sarangchae() {
   );
 }
 
-function handleServerMessage(
-  msg: ServerMessage,
-  dispatch: React.Dispatch<Action>,
-  player: AudioPlayer,
-): void {
-  switch (msg.type) {
-    case "audio":
-      player.play(msg.data);
-      break;
-    case "input_transcript":
-      dispatch({ type: "heardChunk", text: msg.data });
-      break;
-    case "output_transcript":
-      dispatch({ type: "spokenChunk", text: msg.data });
-      break;
-    case "interrupted":
-      player.reset();
-      dispatch({ type: "interrupted" });
-      break;
-    case "turn_complete":
-      dispatch({ type: "turnComplete" });
-      break;
-    case "error":
-      dispatch({
-        type: "error",
-        message: msg.data?.message ?? "알 수 없는 오류가 발생했습니다.",
-      });
-      break;
-  }
-}
 
 function formatMicError(err: unknown): string {
   if (!(err instanceof Error)) return `마이크를 켤 수 없네: ${String(err)}`;

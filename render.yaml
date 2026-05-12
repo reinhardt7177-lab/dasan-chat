@@ -35,3 +35,7 @@ services:
       # Render dashboard에서 실제 키 입력 (sync: false → secrets 잠금).
       - key: GEMINI_API_KEY
         sync: false
+      # 브라우저 직접 연결(Client-to-Server)용. 빌드 시 Vite가 번들에 삽입.
+      # GEMINI_API_KEY와 동일한 값을 Render dashboard에 입력.
+      - key: VITE_GEMINI_API_KEY
+        sync: false
