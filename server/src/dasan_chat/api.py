@@ -2,20 +2,11 @@
 
 엔드포인트:
 - POST /chat        — 서재(글). 짧은 히스토리를 받아 한 턴 응답.
-- WS   /ws/live     — 사랑채(음성). half-cascade Live 모델로 음성 IO 중계.
+- POST /transcribe  — 사랑채(음성) 입력 path. WAV(16kHz mono) 업로드 → Gemini Flash가 ko-KR로 정확 전사.
+- WS   /ws/live     — 사랑채(음성) 출력 path. 클라이언트가 transcribe 결과를 `text` 메시지로 보내면 정약용 음성 응답.
 
-클라이언트 ↔ 서버 WebSocket 메시지 프로토콜 (JSON):
-  client → server:
-    { type: "audio",       data: <base64 PCM 16kHz mono> }
-    { type: "text",        data: <string> }
-    { type: "end_of_turn" }                # push-to-talk에서 사용 (선택)
-  server → client:
-    { type: "audio",            data: <base64 PCM> }
-    { type: "input_transcript", data: <string> }     # 학생 발화 인식 결과
-    { type: "output_transcript",data: <string> }     # 선생님 답변 텍스트
-    { type: "interrupted" }
-    { type: "turn_complete" }
-    { type: "error",            data: { message, action } }
+음성 입력은 native-audio Live가 한국어 ASR이 약해서 분리. 학생 음성을 PTT로 모아서 한 발에 보내고
+정확한 한국어 텍스트를 받은 뒤 그것을 Live WS의 text input으로 전달하는 구조.
 """
 
 from __future__ import annotations
@@ -32,10 +23,13 @@ from fastapi import APIRouter, HTTPException, WebSocket
 from google import genai
 from google.genai import types
 from google.genai.types import (
+    AudioTranscriptionConfig,
     LiveConnectConfig,
     LiveServerMessage,
     Modality,
+    PrebuiltVoiceConfig,
     SpeechConfig,
+    VoiceConfig,
 )
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
@@ -137,33 +131,99 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# /ws/live — 사랑채(음성) 모드
+# /transcribe — 사랑채 음성 입력 → 한국어 텍스트
+# ──────────────────────────────────────────────────────────────────────
+#
+# 네이티브 오디오 Live가 한국어 ASR이 약해서 입력 path를 분리.
+# 학생이 PTT로 모은 발화(WAV 16kHz mono)를 한 발에 받아 Gemini Flash로 ko-KR 정확 전사.
+# 클라이언트는 결과 텍스트를 다시 /ws/live의 `text` 메시지로 보내 정약용 음성 응답을 받음.
+
+
+class TranscribeResponse(BaseModel):
+    text: str
+
+
+_TRANSCRIBE_INSTRUCTION = (
+    "다음은 한국 초등학생이 한국어로 말한 음성이다. "
+    "들리는 그대로 자연스러운 한국어 문장으로 옮겨라. "
+    "추가 설명·번역·따옴표·괄호 없이 발화 텍스트만 한 줄로 반환하라. "
+    "외국어로 들려도 한국어로 해석해야 한다. 잘 안 들리면 가장 가까운 한국어 문장으로 적어라."
+)
+
+
+@router.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe(payload: dict) -> TranscribeResponse:
+    """학생 음성 → 한국어 텍스트.
+
+    body: { "audio": "<base64 WAV bytes>" }  — 클라이언트가 PCM 청크들을 WAV로 패킹해 보냄.
+    """
+    audio_b64 = payload.get("audio")
+    if not audio_b64 or not isinstance(audio_b64, str):
+        raise HTTPException(status_code=400, detail="audio 필드(base64 WAV)가 필요합니다.")
+
+    try:
+        audio_bytes = base64.b64decode(audio_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="audio가 유효한 base64가 아닙니다.")
+    if len(audio_bytes) < 1000:
+        # 1KB 미만은 사실상 무음(0.03초 미만). 비싸게 모델 부르지 말고 빈 문자열로 단락.
+        return TranscribeResponse(text="")
+
+    try:
+        response = await to_thread(
+            client.models.generate_content,
+            model=SETTINGS.transcribe_model,
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(text=_TRANSCRIBE_INSTRUCTION),
+                        types.Part.from_bytes(data=audio_bytes, mime_type="audio/wav"),
+                    ],
+                )
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.0,  # 전사는 결정론적으로
+                max_output_tokens=512,
+            ),
+        )
+    except Exception as exc:
+        logger.exception("transcribe failed")
+        raise HTTPException(status_code=502, detail=f"음성 인식 중 오류: {exc}")
+
+    text = (response.text or "").strip()
+    # 모델이 따옴표로 감쌀 때 있어 trim.
+    if text.startswith(("「", "\"", "“", "'")):
+        text = text[1:]
+    if text.endswith(("」", "\"", "”", "'")):
+        text = text[:-1]
+    return TranscribeResponse(text=text.strip())
+
+
+# ──────────────────────────────────────────────────────────────────────
+# /ws/live — 사랑채(음성) 출력 path
 # ──────────────────────────────────────────────────────────────────────
 
 
 def _build_live_config() -> LiveConnectConfig:
-    """gemini-3.1-flash-live-preview (half-cascade) 용 MINIMAL config.
+    """native-audio 출력 전용 config.
 
-    이전 시도에서 native-audio용 풀 config(transcription·VAD·voice_name)을 같이 보냈더니
-    half-cascade가 setup 단계에서 timeout — 지원 안 하는 필드 거부 의심. minimal로 시작해
-    동작 확인되면 한 필드씩 다시 추가하며 어떤 게 진짜 문제인지 isolate.
+    이 path는 이제 **오디오 출력**만 담당. 학생 음성 입력은 `/api/transcribe`가 따로 처리하고
+    이 WS에는 텍스트로만 들어옴(`type: "text"`). VAD/transcription/audio input 다 불필요.
 
-    Minimal에서 살린 것:
-    - system_instruction (정약용 페르소나, 한국어 강제 — 가장 중요)
-    - response_modalities=[AUDIO]
-    - speech_config.language_code="ko-KR" (음성 출력 한국어 pin)
-
-    뺀 것 (지원 시 추후 복구):
-    - input_audio_transcription / output_audio_transcription
-    - voice_config (voice_name=Charon)
-    - realtime_input_config / VAD — PTT라 어차피 불필요
-
-    PTT 클라이언트가 `end_of_turn` 메시지로 발화 끝을 명시. VAD 의존하지 않음.
+    출력 음성은 Charon (남성 톤) + ko-KR. 다산챗봇 그대로.
     """
     return LiveConnectConfig(
         system_instruction=voice_prompt(),
         response_modalities=[Modality.AUDIO],
-        speech_config=SpeechConfig(language_code="ko-KR"),
+        # 출력 자막용. (input transcription은 이제 audio input 안 보내니 의미 없음.)
+        output_audio_transcription=AudioTranscriptionConfig(),
+        speech_config=SpeechConfig(
+            language_code="ko-KR",
+            voice_config=VoiceConfig(
+                prebuilt_voice_config=PrebuiltVoiceConfig(voice_name="Charon"),
+            ),
+        ),
     )
 
 

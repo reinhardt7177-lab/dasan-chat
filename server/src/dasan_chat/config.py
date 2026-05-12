@@ -19,15 +19,13 @@ load_dotenv(find_dotenv())
 class Settings:
     gemini_api_key: str
 
-    # 사랑채(음성). half-cascade Live 모델로 다시 시도.
-    # 이전 timeout은 native-audio용 LiveConnectConfig 필드(transcription·VAD·voice_name)를
-    # half-cascade가 거부해 setup 단계에서 끊긴 것으로 추정 → minimal config로 재시도.
-    # 후보 4개 (2026-05-12 client.models.list() 기준):
-    #   - gemini-3.1-flash-live-preview              ← 선택 (half-cascade, ko-KR 입력 정확 기대)
-    #   - gemini-2.5-flash-native-audio-latest       ← 한국어 ASR 약함 (확인됨)
-    #   - gemini-2.5-flash-native-audio-preview-12-2025
-    #   - gemini-2.5-flash-native-audio-preview-09-2025
-    voice_model: str = "gemini-3.1-flash-live-preview"
+    # 사랑채(음성) 출력용 Live 모델 — native-audio 복귀.
+    # gemini-3.1-flash-live-preview는 minimal config로도 setup 단계에서 끊김 확인(2026-05-13).
+    # 한국어 ASR 약점은 별도 path(/api/transcribe with Gemini Flash audio understanding)으로 처방.
+    voice_model: str = "gemini-2.5-flash-native-audio-latest"
+
+    # 입력 음성 → 텍스트 전사용 모델. Gemini Flash의 audio understanding으로 ko-KR 정확 인식.
+    transcribe_model: str = "gemini-2.5-flash"
 
     # 음성 합성 voice (ko-KR). Charon은 깊은 남성 톤이라 노학자에 잘 어울린다.
     voice_name: str = "Charon"

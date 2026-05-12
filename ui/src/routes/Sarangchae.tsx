@@ -1,9 +1,11 @@
 import { useEffect, useReducer, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 
+import { postTranscribe } from "../lib/api";
 import { AudioPlayer } from "../lib/audio-player";
 import { AudioRecorder } from "../lib/audio-recorder";
 import { LiveSocket, type ServerMessage } from "../lib/live-ws";
+import { chunksToWavBase64 } from "../lib/wav";
 import { Character } from "../components/Character";
 
 // 사랑채(음성) 페이지.
@@ -13,7 +15,7 @@ import { Character } from "../components/Character";
 //  - mic 토글OFF: AudioRecorder.stop. WS는 유지.
 //  - unmount    : 모두 정리.
 
-type Status = "connecting" | "idle" | "listening" | "speaking";
+type Status = "connecting" | "idle" | "listening" | "transcribing" | "speaking";
 
 type State = {
   status: Status;
@@ -142,14 +144,17 @@ export function Sarangchae() {
     };
   }, []);
 
-  // === Push-to-Talk ===================================================
-  // 학생이 마이크 버튼을 꾹 누르고 있는 동안만 발화 전송.
-  // 손 떼면 즉시 end_of_turn 신호 → Gemini가 audio_stream_end로 발화 종료 인식.
-  // 옆 자리 잡음·기침은 전송 안 됨, 발화 끝도 학생이 명시.
+  // === Push-to-Talk (이중 path) =======================================
+  // 입력: 마이크 → 16kHz PCM 청크들을 클라이언트에 누적 → 손 떼면 WAV로 패킹
+  //       → /api/transcribe (Gemini Flash, ko-KR 정확) → 한국어 텍스트
+  // 출력: 받은 텍스트를 /ws/live에 `text` 메시지로 송신 → 정약용 음성 응답
   //
-  // 두 번 누름 방지: 시작 중(starting)일 때 추가 호출 무시.
+  // 이중 path 이유: native-audio Live가 한국어 ASR이 약해 사용자 발화를 noise/외국어로
+  // 오인. Gemini Flash의 audio understanding은 ko-KR 정확하므로 입력 path만 분리.
 
   const pttStartingRef = useRef(false);
+  /** PTT 한 발에서 모은 16kHz PCM 청크들(base64 Int16). */
+  const pcmChunksRef = useRef<string[]>([]);
 
   const startPTT = async () => {
     if (pttStartingRef.current || state.micOn) return;
@@ -163,7 +168,7 @@ export function Sarangchae() {
 
     if (!ws.isOpen()) {
       dispatch({ type: "status", value: "connecting" });
-      const ok = await ws.waitOpen(25000); // Render cold start 30s까지 견딤
+      const ok = await ws.waitOpen(25000); // Render cold start ~30s 견딤
       if (!ok) {
         dispatch({
           type: "error",
@@ -176,8 +181,10 @@ export function Sarangchae() {
 
     try {
       await player.ensureContext();
+      pcmChunksRef.current = [];
       const rec = new AudioRecorder();
-      rec.onChunk = (b64) => ws.sendAudioChunk(b64);
+      // WS로 직접 보내지 않음 — 발화 끝에 한 발로 transcribe.
+      rec.onChunk = (b64) => pcmChunksRef.current.push(b64);
       await rec.start();
       recorderRef.current = rec;
       dispatch({ type: "micOn", value: true });
@@ -190,18 +197,50 @@ export function Sarangchae() {
     }
   };
 
-  const stopPTT = () => {
+  const stopPTT = async () => {
     if (!state.micOn) return;
     recorderRef.current?.stop();
     recorderRef.current = null;
-    // 학생 발화 끝났음을 Gemini에 명시 — VAD 의존하지 않음.
-    wsRef.current?.sendEndOfTurn();
     dispatch({ type: "micOn", value: false });
-    dispatch({ type: "status", value: "idle" });
+
+    const chunks = pcmChunksRef.current;
+    pcmChunksRef.current = [];
+    if (chunks.length === 0) {
+      dispatch({ type: "status", value: "idle" });
+      return;
+    }
+
+    // 발화를 한 WAV로 묶어 transcribe.
+    dispatch({ type: "status", value: "transcribing" });
+    try {
+      const wavBase64 = chunksToWavBase64(chunks, 16000);
+      const text = await postTranscribe(wavBase64);
+      const cleaned = text.trim();
+      if (!cleaned) {
+        dispatch({ type: "status", value: "idle" });
+        dispatch({
+          type: "error",
+          message: "잘 들리지 않았네. 한 번 더 또박또박 말씀해 주시구려.",
+        });
+        return;
+      }
+      // 학생 발화 인식 결과를 좌측 한지 패널에 즉시 노출.
+      dispatch({ type: "heardChunk", text: cleaned });
+      // 정약용에게 한국어 텍스트 전달 → 음성 응답.
+      wsRef.current?.sendText(cleaned);
+      dispatch({ type: "status", value: "speaking" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      dispatch({ type: "status", value: "idle" });
+      dispatch({ type: "error", message: `음성을 텍스트로 옮기지 못하였네: ${msg}` });
+    }
   };
 
   // === amplitude 기반 status 갱신 (speaking 자동 토글) ==================
+  // transcribing 중에는 덮어쓰지 않음 — 그 단계는 사용자 발화 처리 중이라
+  // 정약용이 아직 말 안 함. amplitude 0 인 상태는 정상.
   useEffect(() => {
+    if (state.status === "transcribing") return;
     if (state.amplitude > 0 && state.status !== "speaking") {
       dispatch({ type: "status", value: "speaking" });
     } else if (state.amplitude === 0 && state.status === "speaking") {
@@ -372,12 +411,16 @@ function StatusBadge({ status }: { status: Status }) {
       cls: "bg-wood/70 text-gold",
     },
     idle: {
-      text: "🎤 마이크를 눌러 선생님께 여쭙어 보시구려",
+      text: "🎤 마이크를 꾹 눌러 말씀하시구려",
       cls: "bg-wood/70 text-gold",
     },
     listening: {
-      text: "🎤 듣고 계시네… 말씀하시구려",
+      text: "🎤 듣고 계시네… 손을 떼면 답하시리",
       cls: "bg-jade/80 text-parchment",
+    },
+    transcribing: {
+      text: "✍️ 자네 말을 옮겨 적는 중…",
+      cls: "bg-gold/80 text-ink",
     },
     speaking: {
       text: "💬 선생님께서 말씀하시는 중",
