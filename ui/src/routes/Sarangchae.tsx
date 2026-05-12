@@ -368,25 +368,13 @@ export function Sarangchae() {
       <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-6">
         <div className="lacquer-surface mx-auto flex w-full max-w-3xl items-center justify-center gap-3 rounded-md px-5 py-4">
           <button
-            onMouseDown={startPTT}
-            onMouseUp={stopPTT}
-            onMouseLeave={stopPTT}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              startPTT();
-            }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              stopPTT();
-            }}
-            onTouchCancel={stopPTT}
-            onContextMenu={(e) => e.preventDefault()}
+            onClick={() => (state.micOn ? stopPTT() : startPTT())}
             className={`relative flex h-16 w-16 select-none items-center justify-center rounded-full border transition ${
               state.micOn
                 ? "scale-110 border-seal-bright bg-seal text-parchment shadow-[0_0_24px_rgba(139,26,26,0.6)]"
                 : "border-gold-soft/40 bg-wood-2/70 text-gold hover:bg-wood-2"
             }`}
-            aria-label="누르고 있는 동안 말하기"
+            aria-label={state.micOn ? "마이크 끄기" : "마이크 켜기"}
             aria-pressed={state.micOn}
           >
             <MicIcon />
@@ -396,8 +384,8 @@ export function Sarangchae() {
           </button>
           <div className="text-sm text-parchment/80">
             {state.micOn
-              ? "🎤 듣고 계시네… 손을 떼면 답하시리"
-              : "마이크를 꾹 눌러 말씀하시구려"}
+              ? "🎤 듣고 계시네… 다시 누르면 전송"
+              : "마이크 버튼을 눌러 말씀하시구려"}
           </div>
         </div>
 
@@ -434,11 +422,11 @@ function StatusBadge({ status }: { status: Status }) {
       cls: "bg-wood/70 text-gold",
     },
     idle: {
-      text: "🎤 마이크를 꾹 눌러 말씀하시구려",
+      text: "🎤 마이크 버튼을 눌러 말씀하시구려",
       cls: "bg-wood/70 text-gold",
     },
     listening: {
-      text: "🎤 듣고 계시네… 손을 떼면 답하시리",
+      text: "🎤 듣고 계시네… 다시 누르면 전송",
       cls: "bg-jade/80 text-parchment",
     },
     transcribing: {
