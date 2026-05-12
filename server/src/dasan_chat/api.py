@@ -302,13 +302,11 @@ async def _pump_client_to_gemini(
                 media=types.Blob(mime_type="audio/pcm;rate=16000", data=audio_bytes)
             )
         elif msg_type == "text":
-            # send_client_content가 turn_complete=True를 같이 전달해 한 발에 "input + 끝"
-            # 신호를 줌. send_realtime_input(text=...)만 쓰면 Gemini가 더 input을 기다리며
-            # turn_complete를 안 보내 다음 turn이 막힘 (2026-05-13 native-audio-latest 확인).
-            await live_session.send_client_content(
-                turns=[types.Content(role="user", parts=[types.Part(text=payload)])],
-                turn_complete=True,
-            )
+            # send_realtime_input(text=...)만으로 일단 전달. 한 세션에서 send_client_content를
+            # 섞으면 SDK 내부 queue가 reset 못해 AssertionError가 남 (2026-05-13 확인).
+            # turn 종료 신호는 같은 송신로의 audio_stream_end=True로 명시.
+            await live_session.send_realtime_input(text=payload)
+            await live_session.send_realtime_input(audio_stream_end=True)
         elif msg_type == "end_of_turn":
             # push-to-talk 클라이언트가 명시적으로 발화 끝을 알리는 경우.
             # send_realtime_input의 audio_stream_end로 VAD에게 끝 신호.

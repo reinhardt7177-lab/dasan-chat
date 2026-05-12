@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState, type FormEvent } from "react";
+import { useEffect, useReducer, useRef } from "react";
 import { Link } from "react-router-dom";
 
 import { postTranscribe } from "../lib/api";
@@ -93,24 +93,21 @@ export function Sarangchae() {
   const [state, dispatch] = useReducer(reducer, initial);
 
   // 외부 객체들 ref 보존 (재렌더 영향 X).
-  const wsRef = useRef<LiveSocket | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
-
-  // turn 종료 후 일정 시간 청크 없으면 입 다물기 (1.2s safety net).
+  /** 현재 한 turn 처리 중인 WebSocket. 응답 다 받으면 close되고 null로 돌아감.
+   *  매 PTT마다 새 인스턴스를 만들어 Gemini Live session corruption 회피. */
+  const activeWsRef = useRef<LiveSocket | null>(null);
+  /** 응답 음성 chunk가 마지막으로 도착한 후 일정 시간 더 안 오면 turn 종료로 간주, ws 닫음. */
+  const turnEndTimerRef = useRef<number | null>(null);
+  /** 1.2s 청크 없으면 입 다물기 (캐릭터 lipsync safety net). */
   const speakingTimerRef = useRef<number | null>(null);
 
-  // amplitude는 ref로도 들고 있어서 timer-based 자동 꺼짐 동기화에 쓴다.
-  // (현재는 reducer에 의존, 별도 ref 불필요)
-
-  // === WS / Player 초기화 ============================================
+  // === Player 초기화 (WS는 mount 시 안 만듦 — turn마다 만들기) =========
   useEffect(() => {
     const player = new AudioPlayer();
     player.onAmplitude = (level) => {
       dispatch({ type: "amplitude", value: level });
-
-      // 1.2초간 신규 청크 없으면 강제로 amplitude 0 → 입 다물기.
-      // (Gemini turn_complete 누락 안전망 — 다산챗봇 패턴.)
       if (speakingTimerRef.current !== null) {
         window.clearTimeout(speakingTimerRef.current);
       }
@@ -121,28 +118,37 @@ export function Sarangchae() {
       }
     };
     playerRef.current = player;
-
-    const ws = new LiveSocket();
-    wsRef.current = ws;
-    ws.on({
-      onOpen: () => dispatch({ type: "status", value: "idle" }),
-      onClose: () => dispatch({ type: "status", value: "connecting" }),
-      onMessage: (msg) => handleServerMessage(msg, dispatch, player),
-    });
-    ws.connect();
+    // 즉시 idle — connection 대기 화면 없이 사용자가 마이크 누르면 그때 연결.
+    dispatch({ type: "status", value: "idle" });
 
     return () => {
       if (speakingTimerRef.current !== null) {
         window.clearTimeout(speakingTimerRef.current);
       }
+      if (turnEndTimerRef.current !== null) {
+        window.clearTimeout(turnEndTimerRef.current);
+      }
       recorderRef.current?.stop();
       recorderRef.current = null;
+      activeWsRef.current?.close();
+      activeWsRef.current = null;
       player.destroy();
-      ws.close();
-      wsRef.current = null;
       playerRef.current = null;
     };
   }, []);
+
+  /** 현재 진행 중인 turn ws를 즉시 닫고 player 큐 비움 (barge-in). */
+  const closeActiveTurn = () => {
+    if (turnEndTimerRef.current !== null) {
+      window.clearTimeout(turnEndTimerRef.current);
+      turnEndTimerRef.current = null;
+    }
+    if (activeWsRef.current) {
+      activeWsRef.current.close();
+      activeWsRef.current = null;
+    }
+    playerRef.current?.reset();
+  };
 
   // === Push-to-Talk (이중 path) =======================================
   // 입력: 마이크 → 16kHz PCM 청크들을 클라이언트에 누적 → 손 떼면 WAV로 패킹
@@ -159,36 +165,19 @@ export function Sarangchae() {
   const startPTT = async () => {
     if (pttStartingRef.current || state.micOn) return;
     pttStartingRef.current = true;
-    const ws = wsRef.current;
     const player = playerRef.current;
-    if (!ws || !player) {
+    if (!player) {
       pttStartingRef.current = false;
       return;
     }
 
-    // Barge-in: 정약용 말 중이거나 직전 응답 잔여 chunk가 큐에 있으면 즉시 중단.
-    // native-audio 모델이 turn_complete 신호를 잘 안 보내서 status가 speaking에
-    // 머무는 경우가 있어, status 의존 없이 명시적으로 재생 큐 비움.
-    player.reset();
-
-    if (!ws.isOpen()) {
-      dispatch({ type: "status", value: "connecting" });
-      const ok = await ws.waitOpen(25000); // Render cold start ~30s 견딤
-      if (!ok) {
-        dispatch({
-          type: "error",
-          message: "선생님과 아직 연결이 닿지 않았네. 잠시만 더 기다렸다가 다시 눌러 주시구려.",
-        });
-        pttStartingRef.current = false;
-        return;
-      }
-    }
+    // Barge-in: 직전 turn이 아직 응답 중이거나 큐에 잔여 chunk 있으면 즉시 중단.
+    closeActiveTurn();
 
     try {
       await player.ensureContext();
       pcmChunksRef.current = [];
       const rec = new AudioRecorder();
-      // WS로 직접 보내지 않음 — 발화 끝에 한 발로 transcribe.
       rec.onChunk = (b64) => pcmChunksRef.current.push(b64);
       await rec.start();
       recorderRef.current = rec;
@@ -200,6 +189,19 @@ export function Sarangchae() {
     } finally {
       pttStartingRef.current = false;
     }
+  };
+
+  /** 응답 dead-time이 일정 시간 지속되면 turn 종료로 간주, ws close. */
+  const scheduleTurnEnd = (delayMs = 1500) => {
+    if (turnEndTimerRef.current !== null) {
+      window.clearTimeout(turnEndTimerRef.current);
+    }
+    turnEndTimerRef.current = window.setTimeout(() => {
+      turnEndTimerRef.current = null;
+      activeWsRef.current?.close();
+      activeWsRef.current = null;
+      dispatch({ type: "status", value: "idle" });
+    }, delayMs);
   };
 
   const stopPTT = async () => {
@@ -215,7 +217,6 @@ export function Sarangchae() {
       return;
     }
 
-    // 발화를 한 WAV로 묶어 transcribe.
     dispatch({ type: "status", value: "transcribing" });
     try {
       const wavBase64 = chunksToWavBase64(chunks, 16000);
@@ -229,15 +230,56 @@ export function Sarangchae() {
         });
         return;
       }
-      // 학생 발화 인식 결과를 좌측 한지 패널에 즉시 노출.
       dispatch({ type: "heardChunk", text: cleaned });
-      // 정약용에게 한국어 텍스트 전달 → 음성 응답.
-      wsRef.current?.sendText(cleaned);
+
+      // 매 turn 새 WS — Gemini Live SDK가 한 세션에서 두 번 연속 turn을 처리 못함을
+      // 우회. 응답 다 받으면 close, 다음 PTT는 또 새 인스턴스.
+      const player = playerRef.current;
+      if (!player) return;
+      const ws = new LiveSocket();
+      activeWsRef.current = ws;
+      ws.on({
+        onMessage: (msg) => {
+          handleServerMessage(msg, dispatch, player);
+          if (msg.type === "audio") {
+            // 새 chunk 도착할 때마다 close 타이머 reset.
+            scheduleTurnEnd(1500);
+          }
+          if (msg.type === "turn_complete") {
+            // server가 명시적으로 종료 신호 주면 즉시 close.
+            scheduleTurnEnd(200);
+          }
+        },
+        onClose: () => {
+          // 서버가 먼저 끊은 경우 정리.
+          if (activeWsRef.current === ws) {
+            activeWsRef.current = null;
+            if (turnEndTimerRef.current !== null) {
+              window.clearTimeout(turnEndTimerRef.current);
+              turnEndTimerRef.current = null;
+            }
+          }
+        },
+      });
+      ws.connect();
+      const ok = await ws.waitOpen(15000);
+      if (!ok) {
+        dispatch({ type: "status", value: "idle" });
+        dispatch({
+          type: "error",
+          message: "선생님과 연결이 닿지 않았네. 다시 여쭙어 주시구려.",
+        });
+        activeWsRef.current = null;
+        return;
+      }
+      ws.sendText(cleaned);
       dispatch({ type: "status", value: "speaking" });
+      // 응답 chunk가 한 번도 안 와도 무한 대기 안 하게 안전망.
+      scheduleTurnEnd(15000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       dispatch({ type: "status", value: "idle" });
-      dispatch({ type: "error", message: `음성을 텍스트로 옮기지 못하였네: ${msg}` });
+      dispatch({ type: "error", message: `음성을 옮기지 못하였네: ${msg}` });
     }
   };
 
@@ -349,10 +391,6 @@ export function Sarangchae() {
           </div>
         </div>
 
-        {/* dev-only: 마이크 없이 텍스트로 Live API 들이받기. prod 빌드에선 사라짐. */}
-        {import.meta.env.DEV && (
-          <DevTextInjector wsRef={wsRef} playerRef={playerRef} />
-        )}
       </div>
     </div>
   );
@@ -439,51 +477,6 @@ function StatusBadge({ status }: { status: Status }) {
     >
       {c.text}
     </div>
-  );
-}
-
-function DevTextInjector({
-  wsRef,
-  playerRef,
-}: {
-  wsRef: React.RefObject<LiveSocket | null>;
-  playerRef: React.RefObject<AudioPlayer | null>;
-}) {
-  const [text, setText] = useState("");
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    const t = text.trim();
-    const ws = wsRef.current;
-    const player = playerRef.current;
-    if (!t || !ws || !player) return;
-    if (!ws.isOpen()) {
-      const ok = await ws.waitOpen(4000);
-      if (!ok) return;
-    }
-    // autoplay 통과 — 사용자 클릭 직후 이 핸들러가 호출되니 안전.
-    await player.ensureContext();
-    ws.sendText(t);
-    setText("");
-  };
-  return (
-    <form
-      onSubmit={onSubmit}
-      className="mx-auto mt-3 flex w-full max-w-3xl items-center gap-2"
-      aria-label="dev: text injector"
-    >
-      <input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="(dev) 마이크 대신 텍스트로 Live API에 보내기 — 한국어로 한 문장…"
-        className="flex-grow rounded-sm border border-gold-soft/30 bg-wood-2/60 px-3 py-2 text-sm text-parchment placeholder:text-gold-soft/60 placeholder:italic focus:border-gold/60 focus:outline-none"
-      />
-      <button
-        type="submit"
-        className="rounded-sm border border-gold-soft/40 bg-wood/80 px-3 py-2 text-sm text-gold hover:bg-wood-2"
-      >
-        보내기
-      </button>
-    </form>
   );
 }
 
