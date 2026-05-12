@@ -166,6 +166,11 @@ export function Sarangchae() {
       return;
     }
 
+    // Barge-in: 정약용 말 중이거나 직전 응답 잔여 chunk가 큐에 있으면 즉시 중단.
+    // native-audio 모델이 turn_complete 신호를 잘 안 보내서 status가 speaking에
+    // 머무는 경우가 있어, status 의존 없이 명시적으로 재생 큐 비움.
+    player.reset();
+
     if (!ws.isOpen()) {
       dispatch({ type: "status", value: "connecting" });
       const ok = await ws.waitOpen(25000); // Render cold start ~30s 견딤
