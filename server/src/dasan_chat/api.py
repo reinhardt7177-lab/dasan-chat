@@ -32,17 +32,10 @@ from fastapi import APIRouter, HTTPException, WebSocket
 from google import genai
 from google.genai import types
 from google.genai.types import (
-    AudioTranscriptionConfig,
-    AutomaticActivityDetection,
-    EndSensitivity,
     LiveConnectConfig,
     LiveServerMessage,
     Modality,
-    PrebuiltVoiceConfig,
-    RealtimeInputConfig,
     SpeechConfig,
-    StartSensitivity,
-    VoiceConfig,
 )
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
@@ -149,38 +142,28 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
 
 def _build_live_config() -> LiveConnectConfig:
-    """half-cascade 모델용 LiveConnectConfig.
+    """gemini-3.1-flash-live-preview (half-cascade) 용 MINIMAL config.
 
-    핵심 변경점 (vs 다산챗봇 원본):
-    - response_modalities=[AUDIO] 그대로지만 모델이 half-cascade라 내부 ASR이 ko-KR 정확.
-    - input_audio_transcription / output_audio_transcription 그대로 — 학생에게
-      "선생님이 이렇게 들으셨네" 표시할 거라 input transcription 필수.
-    - SpeechConfig.language_code="ko-KR" + Charon voice — ko-KR 출력 확실히 핀.
-    - VAD sensitivity: START_HIGH(잡음 한 번 더 걸러냄) + END_LOW(말 끊김 방지).
-      교실 환경(에어컨·옆 학생 잡담)에서 START_LOW가 너무 자주 false-fire함.
+    이전 시도에서 native-audio용 풀 config(transcription·VAD·voice_name)을 같이 보냈더니
+    half-cascade가 setup 단계에서 timeout — 지원 안 하는 필드 거부 의심. minimal로 시작해
+    동작 확인되면 한 필드씩 다시 추가하며 어떤 게 진짜 문제인지 isolate.
+
+    Minimal에서 살린 것:
+    - system_instruction (정약용 페르소나, 한국어 강제 — 가장 중요)
+    - response_modalities=[AUDIO]
+    - speech_config.language_code="ko-KR" (음성 출력 한국어 pin)
+
+    뺀 것 (지원 시 추후 복구):
+    - input_audio_transcription / output_audio_transcription
+    - voice_config (voice_name=Charon)
+    - realtime_input_config / VAD — PTT라 어차피 불필요
+
+    PTT 클라이언트가 `end_of_turn` 메시지로 발화 끝을 명시. VAD 의존하지 않음.
     """
     return LiveConnectConfig(
         system_instruction=voice_prompt(),
         response_modalities=[Modality.AUDIO],
-        # language_codes=["ko-KR"]는 SDK type spec에는 있으나 native-audio latest도
-        # "language_codes parameter not supported"로 거부 (2026-05-13 확인 — WS setup
-        # 즉시 끊김). 따라서 SDK 거짓말이고 endpoint가 아직 지원 안 함. 일단 제거하고
-        # 입력 인식 문제는 별도 (half-cascade 모델 / Cloud STT 분리)로 처방.
-        input_audio_transcription=AudioTranscriptionConfig(),
-        output_audio_transcription=AudioTranscriptionConfig(),
-        speech_config=SpeechConfig(
-            language_code="ko-KR",
-            voice_config=VoiceConfig(
-                prebuilt_voice_config=PrebuiltVoiceConfig(voice_name=SETTINGS.voice_name)
-            ),
-        ),
-        realtime_input_config=RealtimeInputConfig(
-            automatic_activity_detection=AutomaticActivityDetection(
-                disabled=False,
-                start_of_speech_sensitivity=StartSensitivity.START_SENSITIVITY_HIGH,
-                end_of_speech_sensitivity=EndSensitivity.END_SENSITIVITY_LOW,
-            )
-        ),
+        speech_config=SpeechConfig(language_code="ko-KR"),
     )
 
 

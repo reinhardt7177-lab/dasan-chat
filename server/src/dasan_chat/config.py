@@ -19,13 +19,15 @@ load_dotenv(find_dotenv())
 class Settings:
     gemini_api_key: str
 
-    # 사랑채(음성). 후보 모델은 client.models.list() 기준 4개:
-    #   - gemini-3.1-flash-live-preview          ← list엔 있으나 실제 handshake timeout (2026-05-12 확인)
-    #   - gemini-2.5-flash-native-audio-latest    ← 다산챗봇 패밀리, 연결 안정 (선택)
+    # 사랑채(음성). half-cascade Live 모델로 다시 시도.
+    # 이전 timeout은 native-audio용 LiveConnectConfig 필드(transcription·VAD·voice_name)를
+    # half-cascade가 거부해 setup 단계에서 끊긴 것으로 추정 → minimal config로 재시도.
+    # 후보 4개 (2026-05-12 client.models.list() 기준):
+    #   - gemini-3.1-flash-live-preview              ← 선택 (half-cascade, ko-KR 입력 정확 기대)
+    #   - gemini-2.5-flash-native-audio-latest       ← 한국어 ASR 약함 (확인됨)
     #   - gemini-2.5-flash-native-audio-preview-12-2025
     #   - gemini-2.5-flash-native-audio-preview-09-2025
-    # latest로 일단 connectivity 확보. 한국어 약함은 시스템 프롬프트 + ko-KR pin으로 보강.
-    voice_model: str = "gemini-2.5-flash-native-audio-latest"
+    voice_model: str = "gemini-3.1-flash-live-preview"
 
     # 음성 합성 voice (ko-KR). Charon은 깊은 남성 톤이라 노학자에 잘 어울린다.
     voice_name: str = "Charon"

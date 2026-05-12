@@ -142,37 +142,40 @@ export function Sarangchae() {
     };
   }, []);
 
-  // === mic 토글 ======================================================
-  const toggleMic = async () => {
+  // === Push-to-Talk ===================================================
+  // 학생이 마이크 버튼을 꾹 누르고 있는 동안만 발화 전송.
+  // 손 떼면 즉시 end_of_turn 신호 → Gemini가 audio_stream_end로 발화 종료 인식.
+  // 옆 자리 잡음·기침은 전송 안 됨, 발화 끝도 학생이 명시.
+  //
+  // 두 번 누름 방지: 시작 중(starting)일 때 추가 호출 무시.
+
+  const pttStartingRef = useRef(false);
+
+  const startPTT = async () => {
+    if (pttStartingRef.current || state.micOn) return;
+    pttStartingRef.current = true;
     const ws = wsRef.current;
     const player = playerRef.current;
-    if (!ws || !player) return;
-
-    if (state.micOn) {
-      recorderRef.current?.stop();
-      recorderRef.current = null;
-      dispatch({ type: "micOn", value: false });
-      dispatch({ type: "status", value: "idle" });
+    if (!ws || !player) {
+      pttStartingRef.current = false;
       return;
     }
 
-    // WS 미연결이면 잠깐 기다림 (Render cold start 대비).
     if (!ws.isOpen()) {
       dispatch({ type: "status", value: "connecting" });
-      const ok = await ws.waitOpen(8000);
+      const ok = await ws.waitOpen(25000); // Render cold start 30s까지 견딤
       if (!ok) {
         dispatch({
           type: "error",
-          message: "선생님과 연결되지 않았네. 잠시 후 다시 시도해 주시구려.",
+          message: "선생님과 아직 연결이 닿지 않았네. 잠시만 더 기다렸다가 다시 눌러 주시구려.",
         });
+        pttStartingRef.current = false;
         return;
       }
     }
 
     try {
-      // autoplay 정책: 사용자 클릭 후에 출력 컨텍스트 resume.
       await player.ensureContext();
-
       const rec = new AudioRecorder();
       rec.onChunk = (b64) => ws.sendAudioChunk(b64);
       await rec.start();
@@ -181,9 +184,20 @@ export function Sarangchae() {
       dispatch({ type: "status", value: "listening" });
       dispatch({ type: "clearError" });
     } catch (err) {
-      const msg = formatMicError(err);
-      dispatch({ type: "error", message: msg });
+      dispatch({ type: "error", message: formatMicError(err) });
+    } finally {
+      pttStartingRef.current = false;
     }
+  };
+
+  const stopPTT = () => {
+    if (!state.micOn) return;
+    recorderRef.current?.stop();
+    recorderRef.current = null;
+    // 학생 발화 끝났음을 Gemini에 명시 — VAD 의존하지 않음.
+    wsRef.current?.sendEndOfTurn();
+    dispatch({ type: "micOn", value: false });
+    dispatch({ type: "status", value: "idle" });
   };
 
   // === amplitude 기반 status 갱신 (speaking 자동 토글) ==================
@@ -258,13 +272,26 @@ export function Sarangchae() {
       <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-6">
         <div className="lacquer-surface mx-auto flex w-full max-w-3xl items-center justify-center gap-3 rounded-md px-5 py-4">
           <button
-            onClick={toggleMic}
-            className={`relative flex h-16 w-16 items-center justify-center rounded-full border transition ${
+            onMouseDown={startPTT}
+            onMouseUp={stopPTT}
+            onMouseLeave={stopPTT}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              startPTT();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              stopPTT();
+            }}
+            onTouchCancel={stopPTT}
+            onContextMenu={(e) => e.preventDefault()}
+            className={`relative flex h-16 w-16 select-none items-center justify-center rounded-full border transition ${
               state.micOn
-                ? "border-seal-bright bg-seal text-parchment shadow-[0_0_24px_rgba(139,26,26,0.6)]"
+                ? "scale-110 border-seal-bright bg-seal text-parchment shadow-[0_0_24px_rgba(139,26,26,0.6)]"
                 : "border-gold-soft/40 bg-wood-2/70 text-gold hover:bg-wood-2"
             }`}
-            aria-label={state.micOn ? "녹음 중지" : "마이크 켜기"}
+            aria-label="누르고 있는 동안 말하기"
+            aria-pressed={state.micOn}
           >
             <MicIcon />
             {state.micOn && (
@@ -273,8 +300,8 @@ export function Sarangchae() {
           </button>
           <div className="text-sm text-parchment/80">
             {state.micOn
-              ? "🎤 듣고 계시네… 말씀하시구려"
-              : "마이크를 눌러 선생님께 여쭙어 보시구려"}
+              ? "🎤 듣고 계시네… 손을 떼면 답하시리"
+              : "마이크를 꾹 눌러 말씀하시구려"}
           </div>
         </div>
 
