@@ -19,10 +19,12 @@ load_dotenv(find_dotenv())
 class Settings:
     gemini_api_key: str
 
-    # 사랑채(음성) 출력용 Live 모델 — native-audio 복귀.
-    # gemini-3.1-flash-live-preview는 minimal config로도 setup 단계에서 끊김 확인(2026-05-13).
-    # 한국어 ASR 약점은 별도 path(/api/transcribe with Gemini Flash audio understanding)으로 처방.
-    voice_model: str = "gemini-2.5-flash-native-audio-latest"
+    # 사랑채(음성) 출력 Live 모델. 후보 4개 중 시도 이력:
+    #   - native-audio-latest (2026-05-13): 응답 중간에 audio 송신 멈추고 turn_complete 안 옴.
+    #     ex) "...지내면서도" 9.87s에 끊김. 모델이 자기 응답을 다 못 끝냄.
+    #   - native-audio-preview-12-2025 (다산챗봇 운영 모델): 시도 중 ← 현재
+    #   - native-audio-preview-09-2025: 12-2025 실패 시 다음 후보.
+    voice_model: str = "gemini-2.5-flash-native-audio-preview-12-2025"
 
     # 입력 음성 → 텍스트 전사용 모델. Gemini Flash의 audio understanding으로 ko-KR 정확 인식.
     transcribe_model: str = "gemini-2.5-flash"
