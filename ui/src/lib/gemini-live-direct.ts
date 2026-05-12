@@ -22,6 +22,7 @@ type AnySession = any;
 export class GeminiLiveDirect {
   private session: AnySession = null;
   private handlers: DirectHandlers = {};
+  private connected = false;
 
   on(h: DirectHandlers): void {
     this.handlers = { ...this.handlers, ...h };
@@ -61,6 +62,7 @@ export class GeminiLiveDirect {
         onclose: () => this.handlers.onClose?.(),
       },
     });
+    this.connected = true;
   }
 
   async sendText(text: string): Promise<void> {
@@ -75,13 +77,18 @@ export class GeminiLiveDirect {
 
   /** 16kHz Int16 PCM 청크(base64)를 Gemini Live에 실시간 스트리밍. VAD가 발화 끝 감지. */
   sendAudio(base64Pcm: string): void {
-    if (!this.session) return;
-    this.session.sendRealtimeInput({
-      media: { mimeType: "audio/pcm;rate=16000", data: base64Pcm },
-    });
+    if (!this.session || !this.connected) return;
+    try {
+      this.session.sendRealtimeInput({
+        media: { mimeType: "audio/pcm;rate=16000", data: base64Pcm },
+      });
+    } catch {
+      // 세션 종료 직후 잔여 청크 전송 시도 — 무시
+    }
   }
 
   async close(): Promise<void> {
+    this.connected = false;
     if (this.session) {
       try {
         await this.session.close();
