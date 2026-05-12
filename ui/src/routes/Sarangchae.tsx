@@ -191,8 +191,11 @@ export function Sarangchae() {
     }
   };
 
-  /** 응답 dead-time이 일정 시간 지속되면 turn 종료로 간주, ws close. */
-  const scheduleTurnEnd = (delayMs = 1500) => {
+  /** 응답 dead-time이 일정 시간 지속되면 turn 종료로 간주, ws close.
+   *  기본 4초 — 정약용 음성이 문장 사이 잠시 멈출 때(노학자 톤)도 끊기지 않게.
+   *  너무 짧으면 응답 도중 close, 너무 길면 다음 PTT 반응이 느려짐. 4s가 sweet spot.
+   */
+  const scheduleTurnEnd = (delayMs = 4000) => {
     if (turnEndTimerRef.current !== null) {
       window.clearTimeout(turnEndTimerRef.current);
     }
@@ -242,8 +245,8 @@ export function Sarangchae() {
         onMessage: (msg) => {
           handleServerMessage(msg, dispatch, player);
           if (msg.type === "audio") {
-            // 새 chunk 도착할 때마다 close 타이머 reset.
-            scheduleTurnEnd(1500);
+            // 새 chunk 도착할 때마다 close 타이머 reset (4초 idle 후 종료).
+            scheduleTurnEnd();
           }
           if (msg.type === "turn_complete") {
             // server가 명시적으로 종료 신호 주면 즉시 close.
