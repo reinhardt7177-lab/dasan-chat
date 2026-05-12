@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+/* 한국 전통 팔레트 — 다산챗봇 디자인 토큰 그대로 이식. */
+@theme {
+  --color-ink: #1c1410;
+  --color-wood: #2a1810;
+  --color-wood-2: #3d2818;
+  --color-gold: #c9a857;
+  --color-gold-soft: #b89548;
+  --color-parchment: #f5ecd9;
+  --color-parchment-soft: #ddd0b0;
+  --color-seal: #8b1a1a;
+  --color-seal-bright: #b53535;
+  --color-jade: #4a6b4f;
+
+  --font-serif: "Noto Serif KR", "Nanum Myeongjo", "바탕", "Batang", serif;
+  --font-brush: "Nanum Brush Script", "Noto Serif KR", serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-serif);
+}
+
+.brush {
+  font-family: var(--font-brush);
+  letter-spacing: 0.05em;
+}
+
+/* 공유 surface: 한지(서재 채팅 배경) */
+.hanji-surface {
+  background:
+    radial-gradient(circle at 30% 20%, rgba(0, 0, 0, 0.04) 0, transparent 40%),
+    radial-gradient(circle at 70% 80%, rgba(0, 0, 0, 0.03) 0, transparent 50%),
+    linear-gradient(180deg, rgba(245, 236, 217, 0.96), rgba(221, 208, 176, 0.96));
+}
+
+/* 공유 surface: 칠기(컨트롤 바) */
+.lacquer-surface {
+  background: linear-gradient(
+    180deg,
+    rgba(42, 24, 16, 0.92),
+    rgba(28, 20, 16, 0.94)
+  );
+  border: 1px solid rgba(201, 168, 87, 0.35);
+  box-shadow:
+    0 0 0 1px rgba(201, 168, 87, 0.12) inset,
+    0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* 사용자 정의 스크롤바 */
+.scroll-zone::-webkit-scrollbar {
+  width: 6px;
+}
+.scroll-zone::-webkit-scrollbar-thumb {
+  background: rgba(201, 168, 87, 0.4);
+  border-radius: 3px;
+}

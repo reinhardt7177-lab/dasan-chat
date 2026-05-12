@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: dasan-chat
+    runtime: python
+    plan: free
+    # Gemini Live API는 일부 지역(한국 포함)에서 1007 "User location not supported"로 거부.
+    # 다산챗봇 디버깅 결과 Oregon이 가장 안정적 — 그대로 유지.
+    region: oregon
+
+    buildCommand: |
+      set -e
+      # 1) Python 백엔드: uv로 의존성 동기화 (lockfile 그대로).
+      pip install --upgrade pip uv
+      cd server
+      uv sync --frozen
+      cd ..
+
+      # 2) React 프론트: ci로 lockfile 정확히 따른 후 prod 빌드.
+      #    vite.config.ts의 build.outDir이 server/src/dasan_chat/static 으로 떨어뜨림.
+      cd ui
+      npm ci
+      npm run build
+
+    startCommand: |
+      cd server
+      uv run python -m dasan_chat --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /api/
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Render dashboard에서 실제 키 입력 (sync: false → secrets 잠금).
+      - key: GEMINI_API_KEY
+        sync: false

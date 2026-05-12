@@ -1,0 +1,33 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.uv/
+.pytest_cache/
+
+# Node
+node_modules/
+.vite/
+
+# 환경변수
+.env
+.env.local
+
+# 빌드 결과 (Render에서 매 배포마다 새로 빌드)
+server/src/dasan_chat/static/
+ui/dist/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vite TS 빌드 캐시
+*.tsbuildinfo
+
+# Claude
+.claude/
