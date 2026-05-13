@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 
 export function Landing() {
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-[#1a0e0a]">
+    <div className="anim-page-fadein relative h-screen w-screen overflow-hidden bg-[#1a0e0a]">
       {/* 한옥 배경 */}
       <div
         className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat"
@@ -57,8 +57,10 @@ export function Landing() {
       {/* 인라인 keyframes (이 페이지에서만 쓰는 작은 애니메이션) */}
       <style>{`
         @keyframes fadein { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes page-fadein { from { opacity: 0; } to { opacity: 1; } }
         @keyframes hint-pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.85; } }
         .anim-fadein { animation: fadein 1.2s ease-out; }
+        .anim-page-fadein { animation: page-fadein 0.9s ease-out; }
         .hint { animation: hint-pulse 3s ease-in-out infinite; }
       `}</style>
     </div>
