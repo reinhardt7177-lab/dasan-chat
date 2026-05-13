@@ -4,8 +4,9 @@ import { Link } from "react-router-dom";
 import { postChat } from "../lib/api";
 import { toApiHistory, useChatStore } from "../store/chat";
 
-// 서재(글) 모드. 닫힌 책 → 펼침 애니메이션 → 한지 채팅 패널.
-// 원본 study/index.html + study.js 구조를 그대로 React로 옮겼다.
+// 서재(글) 모드. 책상 위 문답록(study-bg.png 안의 책)을 핫스팟으로 만들어,
+// 호버 시 황금 글로우 + hover label, 클릭 시 빛이 터지면서 채팅 패널로 전환.
+// 패턴은 Landing.tsx 의 DoorOverlay 와 동일.
 
 const GREETING =
   "허허, 어서 오게나. 무엇이 궁금한지 글로 적어 보시구려.";
@@ -17,11 +18,16 @@ export function Seojae() {
   const handleOpen = () => {
     if (animating || opened) return;
     setAnimating(true);
-    // 책이 펴지는 0.6초 애니메이션 후 패널 노출.
+    // 빛이 터지는 0.6초 효과 후 패널 노출.
     setTimeout(() => {
       setOpened(true);
       setAnimating(false);
     }, 600);
+  };
+
+  const handleClose = () => {
+    // 패널만 닫고 핫스팟 화면으로 복귀. 대화 히스토리는 그대로 유지.
+    setOpened(false);
   };
 
   return (
@@ -34,38 +40,45 @@ export function Seojae() {
             "url('/images/study-bg.png'), url('/images/background.png')",
         }}
       />
-      {/* darkening + 가운데로 시선 모으는 warm spotlight */}
+      {/* darkening + 책상 위로 시선 모으는 warm spotlight */}
       <div className="pointer-events-none absolute inset-0 z-[1] bg-black/45" />
       <div
         className="pointer-events-none absolute inset-0 z-[1]"
         style={{
           background:
-            "radial-gradient(ellipse 32% 36% at 50% 52%, rgba(255, 220, 150, 0.28), transparent 70%)",
+            "radial-gradient(ellipse 28% 28% at 50% 63%, rgba(255, 220, 150, 0.34), transparent 70%)",
         }}
       />
 
       {/* 다산초당으로 */}
       <Link
-        to="/"
+        to="/landing"
         className="absolute top-4 left-4 z-50 rounded-sm border border-gold-soft/40 bg-wood/80 px-3 py-1.5 text-sm text-gold transition hover:bg-wood-2"
       >
         ← 다산초당
       </Link>
 
       {!opened ? (
-        <ClosedBook onOpen={handleOpen} animating={animating} />
+        <BookHotspot onOpen={handleOpen} animating={animating} />
       ) : (
-        <ChatPanel />
+        <ChatPanel onClose={handleClose} />
       )}
 
-      {/* 책 펼침 + 메시지 입장 keyframes */}
+      {/* 핫스팟 + 채팅 패널 + 메시지 keyframes */}
       <style>{`
-        @keyframes book-open {
-          0%   { transform: scale(1) rotate(0deg); opacity: 1; }
-          40%  { transform: scale(1.3) rotate(-3deg); opacity: 1; }
-          100% { transform: scale(1.6) rotate(0deg); opacity: 0; }
+        /* 클릭 시 황금 빛이 펑 터지며 사라지는 효과 */
+        @keyframes book-burst {
+          0%   { opacity: 1; transform: scale(1);
+                 box-shadow: 0 0 30px rgba(255,200,120,0.45), inset 0 0 40px rgba(255,220,150,0.25);
+                 background-color: rgba(255,220,150,0.20); }
+          40%  { opacity: 0.95; transform: scale(1.06);
+                 box-shadow: 0 0 90px rgba(255,200,120,0.95), inset 0 0 100px rgba(255,220,150,0.6);
+                 background-color: rgba(255,220,150,0.45); }
+          100% { opacity: 0; transform: scale(1.25);
+                 box-shadow: 0 0 140px rgba(255,200,120,0), inset 0 0 0 rgba(255,220,150,0);
+                 background-color: rgba(255,220,150,0); }
         }
-        .book-opening { animation: book-open 0.7s ease-in forwards; pointer-events: none; }
+        .book-burst { animation: book-burst 0.6s ease-out forwards; pointer-events: none; }
 
         @keyframes chat-rise {
           from { opacity: 0; transform: translateY(20px) scale(0.95); }
@@ -94,15 +107,8 @@ export function Seojae() {
         @keyframes hint-pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
         .hint-pulse { animation: hint-pulse 2.5s ease-in-out infinite; }
 
-        /* 닫힌 책 */
-        .book-closed { width: 220px; height: 300px; position: relative; cursor: pointer; transform-style: preserve-3d; transition: transform .4s ease, filter .4s ease; filter: drop-shadow(0 12px 28px rgba(0,0,0,0.6)); }
-        .book-closed:hover { transform: translateY(-4px) rotate(-1deg); filter: drop-shadow(0 16px 36px rgba(0,0,0,0.7)) drop-shadow(0 0 24px rgba(201,168,87,0.4)); }
-        .book-cover { position: absolute; inset: 0; background: radial-gradient(ellipse at 20% 30%, rgba(201,168,87,0.15) 0%, transparent 60%), linear-gradient(135deg, #2d1a10 0%, #4a2a1a 50%, #2d1a10 100%); border-radius: 4px 8px 8px 4px; border: 1px solid rgba(201,168,87,0.3); box-shadow: inset 12px 0 0 -8px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(201,168,87,0.15), 0 0 30px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--color-gold); text-align: center; padding: 20px; }
-        .book-cover::before { content:""; position:absolute; left:0; top:0; bottom:0; width:14px; background: linear-gradient(90deg, rgba(0,0,0,0.4), transparent); border-radius: 4px 0 0 4px; }
-        .book-cover::after { content:""; position:absolute; right:0; top:4%; bottom:4%; width:6px; background: repeating-linear-gradient(90deg, rgba(245,236,217,0.85) 0px, rgba(221,208,176,0.85) 1px, rgba(245,236,217,0.85) 2px); }
-        .book-title-zh { font-family: var(--font-brush); font-size: 36px; line-height: 1.1; margin-bottom: 8px; color: var(--color-gold); text-shadow: 0 2px 6px rgba(0,0,0,0.7); }
-        .book-title-ko { font-size: 12px; color: var(--color-parchment-soft); letter-spacing: 0.3em; margin-top: 6px; }
-        .book-author { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--color-gold-soft); letter-spacing: 0.2em; opacity: 0.7; }
+        @keyframes fadein { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .anim-fadein { animation: fadein 1.2s ease-out; }
 
         .bubble-user   { background: rgba(74,107,79,0.12); border: 1px solid rgba(74,107,79,0.40); color: var(--color-ink); }
         .bubble-master { background: rgba(245,236,217,0.7); border: 1px solid rgba(201,168,87,0.40); color: var(--color-ink); }
@@ -111,43 +117,96 @@ export function Seojae() {
   );
 }
 
-function ClosedBook({ onOpen, animating }: { onOpen: () => void; animating: boolean }) {
+function BookHotspot({
+  onOpen,
+  animating,
+}: {
+  onOpen: () => void;
+  animating: boolean;
+}) {
+  // 핫스팟 박스 — study-bg.png 안의 책상 위 문답록(問答錄) 책 위치에 정확히 핀.
+  // 책 자체 크기에 가깝게 좁혀서 호버 영역이 책에서 벗어나지 않도록.
+  const bookPosition = {
+    left: "calc(38% + 110px)",
+    right: "calc(54% - 110px)",
+    top: "calc(53% + 30px)",
+    bottom: "calc(33% - 30px)",
+  };
+
   return (
-    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-6">
-      <div className="brush text-3xl text-parchment drop-shadow-[0_3px_10px_rgba(0,0,0,0.85)] md:text-4xl">
-        서재
+    <>
+      {/* 상단 제목 */}
+      <div className="anim-fadein absolute top-8 left-1/2 z-10 -translate-x-1/2 text-center">
+        <div className="brush text-3xl text-parchment drop-shadow-[0_3px_10px_rgba(0,0,0,0.85)] md:text-4xl">
+          서재
+        </div>
+        <div className="mt-1 text-xs tracking-[0.3em] text-gold drop-shadow-[0_2px_6px_rgba(0,0,0,0.85)] md:text-sm">
+          — 글로 여쭙기 —
+        </div>
       </div>
+
+      {/* 책상 위 문답록 핫스팟 */}
       <button
         type="button"
-        className={`book-closed ${animating ? "book-opening" : ""}`}
-        aria-label="책 펼치기"
         onClick={onOpen}
+        aria-label="문답록 책 펼치기"
+        className={`book-hotspot group absolute z-[5] cursor-pointer rounded-sm border-2 border-transparent transition-all duration-300 ease-out hover:border-gold/80 hover:bg-[rgba(255,220,150,0.08)] hover:shadow-[0_0_24px_rgba(255,200,120,0.55),inset_0_0_12px_rgba(255,220,150,0.18)] ${
+          animating ? "book-burst" : ""
+        }`}
+        style={bookPosition}
       >
-        <div className="book-cover">
-          <div className="book-title-zh">
-            問
-            <br />
-            答
-            <br />
-            錄
+        {/* hover label — 책 아래에 떠오름 */}
+        <div className="pointer-events-none absolute -bottom-4 left-1/2 w-48 -translate-x-1/2 translate-y-full rounded-sm border border-gold/65 bg-gradient-to-b from-ink/95 to-[#0f0a08]/95 px-5 py-3 text-center text-parchment opacity-0 shadow-[0_8px_24px_rgba(0,0,0,0.55),inset_0_0_0_1px_rgba(201,168,87,0.15)] transition-all duration-300 ease-out group-hover:translate-y-full group-hover:opacity-100 md:w-56">
+          <div className="mb-1 flex items-center justify-center gap-2">
+            <BookIcon />
+            <span className="text-lg font-bold">문답록</span>
           </div>
-          <div className="book-title-ko">문답록</div>
-          <div className="book-author">— 다산 정약용 —</div>
+          <div className="text-[11px] text-gold">— 펼쳐 여쭙기 —</div>
         </div>
       </button>
-      <div className="hint-pulse text-sm text-parchment/70 drop-shadow-[0_2px_6px_rgba(0,0,0,0.85)]">
-        책을 펼쳐 선생님께 글로 여쭙어 보시구려
+
+      {/* 하단 안내 */}
+      <div className="hint-pulse absolute bottom-10 left-1/2 z-10 -translate-x-1/2 text-sm text-parchment/70 drop-shadow-[0_2px_6px_rgba(0,0,0,0.85)]">
+        책상 위 문답록을 펴 보시구려
       </div>
-    </div>
+    </>
   );
 }
 
-function ChatPanel() {
+function BookIcon() {
+  return (
+    <svg
+      className="h-5 w-5 text-gold"
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth="1.5"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+      />
+    </svg>
+  );
+}
+
+function ChatPanel({ onClose }: { onClose: () => void }) {
   const { messages, isWaiting, error, pushUser, pushModel, setWaiting, setError } =
     useChatStore();
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // ESC 키로도 패널 닫기.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   // 메시지 추가될 때마다 맨 아래로 스크롤.
   useEffect(() => {
@@ -192,11 +251,34 @@ function ChatPanel() {
     <div className="absolute inset-0 z-10 flex items-center justify-center">
       <div className="chat-panel-rise hanji-surface flex h-[80vh] w-[92vw] flex-col overflow-hidden rounded-md border border-gold-soft/60 shadow-[0_20px_60px_rgba(0,0,0,0.7)] md:h-[36rem] md:w-[44rem]">
         {/* 헤더 */}
-        <div className="border-b border-gold-soft/30 bg-gradient-to-b from-wood/15 to-transparent px-5 py-3 text-center">
+        <div className="relative border-b border-gold-soft/30 bg-gradient-to-b from-wood/15 to-transparent px-5 py-3 text-center">
           <div className="brush text-2xl text-ink">정약용 선생님과의 문답</div>
           <div className="mt-1 text-xs tracking-[0.3em] text-seal">
             — 글로 여쭙기 —
           </div>
+
+          {/* 닫기 (책 덮기) */}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="문답록 덮기 (ESC)"
+            title="문답록 덮기 (ESC)"
+            className="absolute top-1/2 right-3 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-sm border border-gold-soft/40 bg-parchment/40 text-ink/70 transition hover:border-seal/60 hover:bg-seal/10 hover:text-seal"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-4 w-4"
+            >
+              <line x1="6" y1="6" x2="18" y2="18" />
+              <line x1="6" y1="18" x2="18" y2="6" />
+            </svg>
+          </button>
         </div>
 
         {/* 메시지 영역 */}

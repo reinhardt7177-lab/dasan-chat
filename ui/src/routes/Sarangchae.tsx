@@ -207,7 +207,7 @@ export function Sarangchae() {
 
       {/* 다산초당으로 */}
       <Link
-        to="/"
+        to="/landing"
         className="absolute top-4 left-4 z-50 rounded-sm border border-gold-soft/40 bg-wood/80 px-3 py-1.5 text-sm text-gold transition hover:bg-wood-2"
       >
         ← 다산초당

@@ -41,7 +41,7 @@ export function Character({ amplitude, speaking }: Props) {
       </svg>
 
       <div
-        className={`pointer-events-none absolute bottom-28 left-1/2 z-[2] max-h-[78vh] max-w-[55vw] -translate-x-1/2 ${
+        className={`pointer-events-none absolute bottom-28 left-[calc(60%+40px)] z-[2] max-h-[78vh] max-w-[55vw] -translate-x-1/2 ${
           speaking ? "anim-breath-fast" : "anim-breath-slow"
         }`}
       >
@@ -57,6 +57,10 @@ export function Character({ amplitude, speaking }: Props) {
           ref={openRef}
           src="/images/character_open.png"
           alt=""
+          onError={(e) => {
+            // character_open.png 가 없으면 mouth-open 레이어 자체를 숨김 (404 무시).
+            (e.currentTarget as HTMLImageElement).style.display = "none";
+          }}
           className="absolute inset-0 h-full w-full object-contain"
           style={{
             opacity: 0,
@@ -68,6 +72,8 @@ export function Character({ amplitude, speaking }: Props) {
       </div>
 
       <style>{`
+        /* 시각적 중앙 정렬 — 캐릭터 PNG의 figure가 캔버스 안에서 살짝 왼쪽으로
+           치우쳐 있고, 배경(좌측 책장)도 시각적 무게가 무거워서 살짝 오른쪽으로 보정. */
         @keyframes char-breath-fast {
           0%,100% { transform: translateX(-50%) scale(1); filter: brightness(1.00); }
           50%     { transform: translateX(-50%) scale(1.005); filter: brightness(1.04); }

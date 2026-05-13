@@ -77,11 +77,11 @@ type DoorProps = {
 
 function DoorOverlay({ to, side, label, sub, icon }: DoorProps) {
   // 배경 이미지 위 정확한 좌우 문 위치를 % 단위로 핀.
-  // 다산챗봇 원본의 inset 그대로 — 화면 비율 변해도 건물 안에 머무름.
+  // 새 landing-bg.png — 황혼 외경, 건물이 가운데로 컴팩트 → 좌표 재조정.
   const position =
     side === "left"
-      ? { left: "18%", right: "51%", top: "32%", bottom: "22%" }
-      : { left: "51%", right: "18%", top: "32%", bottom: "22%" };
+      ? { left: "26%", right: "51%", top: "41%", bottom: "35%" }
+      : { left: "51%", right: "26%", top: "41%", bottom: "35%" };
 
   return (
     <Link
