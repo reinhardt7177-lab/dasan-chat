@@ -10,10 +10,10 @@ export function Sarangchae() {
     <div className="relative h-screen w-screen overflow-hidden bg-[#1a0e0a]">
       {/* 배경 */}
       <div
-        className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: "url('/images/background.png')" }}
+        className="absolute inset-0 z-0 bg-contain bg-center bg-no-repeat"
+        style={{ backgroundImage: "url('/images/background.png')", backgroundColor: "#1a0e0a" }}
       />
-      <div className="pointer-events-none absolute inset-0 z-[1] bg-black/35" />
+      <div className="pointer-events-none absolute inset-0 z-[1] bg-black/25" />
 
       {/* 뒤로가기 */}
       <Link
