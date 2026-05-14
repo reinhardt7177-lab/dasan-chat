@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router as api_router
@@ -50,11 +51,28 @@ def create_app() -> FastAPI:
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    # SPA 마운트는 마지막 — `/`가 모든 미매칭 경로를 빌드된 index.html로 보냄.
-    # html=True가 SPA 라우팅(/seojae, /sarangchae)을 위해 fallback을 활성화.
-    if SPA_DIR.is_dir() and (SPA_DIR / "index.html").exists():
-        app.mount("/", StaticFiles(directory=SPA_DIR, html=True), name="spa")
-        logger.info("Mounted SPA from %s", SPA_DIR)
+    # 정적 에셋 마운트 (CSS/JS/이미지). /assets, /images는 파일이 실제 존재하는 경우만.
+    if SPA_DIR.is_dir():
+        assets_dir = SPA_DIR / "assets"
+        if assets_dir.is_dir():
+            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        images_dir = SPA_DIR / "images"
+        if images_dir.is_dir():
+            app.mount("/images", StaticFiles(directory=images_dir), name="images")
+        logger.info("Mounted static assets from %s", SPA_DIR)
+
+    # SPA catch-all — React Router가 쓰는 모든 경로(/seojae, /sarangchae 등)에
+    # 새로고침/직접 접속해도 index.html을 내려줘야 클라이언트 라우팅이 동작함.
+    index_file = SPA_DIR / "index.html"
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str) -> FileResponse | JSONResponse:  # noqa: ARG001
+        if index_file.exists():
+            return FileResponse(index_file)
+        return JSONResponse({"detail": "SPA not built"}, status_code=404)
+
+    if index_file.exists():
+        logger.info("SPA fallback active → %s", index_file)
     else:
         logger.warning(
             "SPA build not found at %s — running in API-only mode. "
