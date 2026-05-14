@@ -196,7 +196,7 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
           <div className="mt-0.5 text-xs" style={{ color: "#7a6e58" }}>어린이 경세유표를 만들 때 궁금한 것을 정약용 선생님께 질문해 보세요.</div>
           <button
             type="button" onClick={onClose} aria-label="닫기 (ESC)"
-            className="absolute top-1/2 right-3 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-sm"
+            className="absolute top-1/2 right-16 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-sm"
             style={{ border: "1px solid #c8b98a", color: "#7a3b1e" }}
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
@@ -206,16 +206,18 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* 탐구질문 배너 */}
-        <div className="relative mx-4 mt-3 shrink-0 overflow-hidden rounded" style={{ border: "1.5px solid #c49a3c", background: "linear-gradient(135deg,#fffbf0,#f5eed8)", padding: "10px 16px" }}>
-          <div className="absolute -top-1 left-2 font-serif text-4xl opacity-20" style={{ color: "#c49a3c", lineHeight: 1 }}>❝</div>
-          <div className="mb-1 text-[11px] font-bold tracking-wide" style={{ color: "#c49a3c" }}>오늘의 탐구질문</div>
-          <div className="font-serif text-sm font-bold leading-snug" style={{ color: "#7a3b1e" }}>
-            꼬마 정약용으로서 전남광주통합특별시를 위한<br />어린이 경세유표를 어떻게 만들 수 있을까?
+        <div className="mx-auto mt-3 w-full max-w-3xl shrink-0 px-4">
+          <div className="relative overflow-hidden rounded" style={{ border: "1.5px solid #c49a3c", background: "linear-gradient(135deg,#fffbf0,#f5eed8)", padding: "10px 16px" }}>
+            <div className="absolute -top-1 left-2 font-serif text-4xl opacity-20" style={{ color: "#c49a3c", lineHeight: 1 }}>❝</div>
+            <div className="mb-1 text-[11px] font-bold tracking-wide" style={{ color: "#c49a3c" }}>오늘의 탐구질문</div>
+            <div className="font-serif text-sm font-bold leading-snug" style={{ color: "#7a3b1e" }}>
+              꼬마 정약용으로서 전남광주통합특별시를 위한<br />어린이 경세유표를 어떻게 만들 수 있을까?
+            </div>
           </div>
         </div>
 
         {/* 빠른 질문 버튼 */}
-        <div className="shrink-0 px-4 pt-2 pb-1">
+        <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-2 pb-1">
           <div className="mb-1.5 text-xs" style={{ color: "#7a6e58" }}>💡 이런 것도 물어볼 수 있어요</div>
           <div className="flex flex-wrap gap-1.5">
             {QUICK_QUESTIONS.map((q) => (
@@ -231,43 +233,47 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* 구분선 */}
-        <div className="mx-4 my-2 flex shrink-0 items-center gap-2">
+        <div className="mx-auto my-2 flex w-full max-w-3xl shrink-0 items-center gap-2 px-4">
           <div className="h-px flex-1" style={{ background: "#c8b98a", opacity: .4 }} />
           <span className="text-xs" style={{ color: "#7a6e58" }}>✦ 대화창 ✦</span>
           <div className="h-px flex-1" style={{ background: "#c8b98a", opacity: .4 }} />
         </div>
 
-        {/* 메시지 */}
-        <div ref={scrollRef} className="scroll-zone flex-1 space-y-3 overflow-y-auto px-4 pb-3" style={{ background: "rgba(255,253,248,.8)" }}>
-          <MessageRow role="model" text={GREETING} />
-          {messages.map((m) => <MessageRow key={m.id} role={m.role} text={m.text} />)}
-          {isWaiting && <TypingRow />}
-          {error && <div className="py-1 text-center text-xs" style={{ color: "#7a3b1e" }}>({error})</div>}
+        {/* 메시지 — scroll-zone은 풀폭(스크롤바를 양 끝에), 내부 콘텐츠만 가운데 폭 제한 */}
+        <div ref={scrollRef} className="scroll-zone flex-1 overflow-y-auto" style={{ background: "rgba(255,253,248,.8)" }}>
+          <div className="mx-auto w-full max-w-3xl space-y-3 px-4 pb-3">
+            <MessageRow role="model" text={GREETING} />
+            {messages.map((m) => <MessageRow key={m.id} role={m.role} text={m.text} />)}
+            {isWaiting && <TypingRow />}
+            {error && <div className="py-1 text-center text-xs" style={{ color: "#7a3b1e" }}>({error})</div>}
+          </div>
         </div>
 
-        {/* 입력 */}
-        <form onSubmit={onSubmit} className="flex shrink-0 items-end gap-2 p-3" style={{ borderTop: "1px solid #c8b98a", background: "linear-gradient(to top,rgba(42,24,16,.06),transparent)" }}>
-          <textarea
-            ref={inputRef} rows={1} autoComplete="off" disabled={isWaiting}
-            placeholder="정약용 선생님께 질문해보세요… (예: 우리 모둠 정책을 봐주세요)"
-            value={input}
-            onChange={(e) => { setInput(e.target.value); autoResize(e.target); }}
-            onKeyDown={onKeyDown}
-            className="flex-grow resize-none rounded-md px-3 py-2 text-sm leading-relaxed focus:outline-none disabled:opacity-50"
-            style={{ border: "1.5px solid #c8b98a", background: "#fffdf8", color: "#1a1208", minHeight: 44, maxHeight: 120, fontFamily: "inherit" }}
-            onFocus={(e) => { e.currentTarget.style.borderColor = "#7a3b1e"; }}
-            onBlur={(e) => { e.currentTarget.style.borderColor = "#c8b98a"; }}
-          />
-          <button
-            type="submit" disabled={isWaiting || !input.trim()}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-lg text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ background: "#7a3b1e" }}
-          >
-            ➤
-          </button>
-        </form>
-        <div className="shrink-0 py-2 text-center text-[11px]" style={{ color: "#7a6e58" }}>
-          Enter 키로 전송 · Shift+Enter로 줄바꿈
+        {/* 입력 — 풀폭 배경 + 가운데 max-w-3xl 폼 */}
+        <div className="shrink-0" style={{ borderTop: "1px solid #c8b98a", background: "linear-gradient(to top,rgba(42,24,16,.06),transparent)" }}>
+          <form onSubmit={onSubmit} className="mx-auto flex w-full max-w-3xl items-end gap-2 p-3">
+            <textarea
+              ref={inputRef} rows={1} autoComplete="off" disabled={isWaiting}
+              placeholder="정약용 선생님께 질문해보세요… (예: 우리 모둠 정책을 봐주세요)"
+              value={input}
+              onChange={(e) => { setInput(e.target.value); autoResize(e.target); }}
+              onKeyDown={onKeyDown}
+              className="flex-grow resize-none rounded-md px-3 py-2 text-sm leading-relaxed focus:outline-none disabled:opacity-50"
+              style={{ border: "1.5px solid #c8b98a", background: "#fffdf8", color: "#1a1208", minHeight: 44, maxHeight: 120, fontFamily: "inherit" }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = "#7a3b1e"; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = "#c8b98a"; }}
+            />
+            <button
+              type="submit" disabled={isWaiting || !input.trim()}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-lg text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: "#7a3b1e" }}
+            >
+              ➤
+            </button>
+          </form>
+          <div className="py-2 text-center text-[11px]" style={{ color: "#7a6e58" }}>
+            Enter 키로 전송 · Shift+Enter로 줄바꿈
+          </div>
         </div>
       </div>
     </div>
