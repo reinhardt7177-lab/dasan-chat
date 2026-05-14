@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^0.7.0",
+    "@heygen/streaming-avatar": "^1.0.15",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0",

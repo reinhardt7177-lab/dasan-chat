@@ -1,29 +1,19 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { AudioPlayer } from "../lib/audio-player";
 import { AudioRecorder } from "../lib/audio-recorder";
 import { GeminiLiveDirect } from "../lib/gemini-live-direct";
+import { HeyGenSession } from "../lib/heygen-avatar";
 import { Character } from "../components/Character";
 
-// 사랑채(음성) 페이지 — Live 스트리밍 모드.
-// 버튼 ON: Gemini Live 세션 열기 + 마이크 PCM을 실시간 스트리밍.
-// Gemini VAD가 발화 끝 감지 → 음성 응답 → 다시 학생 발화 가능.
-// 버튼 OFF: 마이크 + 세션 종료.
-
-type Status = "idle" | "listening" | "speaking";
+type Status = "idle" | "loading" | "listening" | "speaking";
 
 type State = {
   status: Status;
   micOn: boolean;
-  amplitude: number;
-  /** 현재 turn 중에 누적된 학생 발화 인식 결과. turn_complete 시 lastHeard로 옮김. */
   heardBuffer: string;
-  /** 직전 turn에서 인식된 학생 발화 (UI에 한 줄로 노출). */
   lastHeard: string;
-  /** 현재 turn 중에 누적된 선생님 답변 텍스트(자막). */
   spokenBuffer: string;
-  /** 마지막으로 완료된 turn의 선생님 답변. */
   lastSpoken: string;
   errorMsg: string | null;
 };
@@ -31,7 +21,6 @@ type State = {
 type Action =
   | { type: "status"; value: Status }
   | { type: "micOn"; value: boolean }
-  | { type: "amplitude"; value: number }
   | { type: "heardChunk"; text: string }
   | { type: "spokenChunk"; text: string }
   | { type: "turnComplete" }
@@ -42,7 +31,6 @@ type Action =
 const initial: State = {
   status: "idle",
   micOn: false,
-  amplitude: 0,
   heardBuffer: "",
   lastHeard: "",
   spokenBuffer: "",
@@ -52,101 +40,91 @@ const initial: State = {
 
 function reducer(s: State, a: Action): State {
   switch (a.type) {
-    case "status":
-      return { ...s, status: a.value };
-    case "micOn":
-      return { ...s, micOn: a.value };
-    case "amplitude":
-      return { ...s, amplitude: a.value };
-    case "heardChunk":
-      return { ...s, heardBuffer: s.heardBuffer + a.text };
-    case "spokenChunk":
-      return { ...s, spokenBuffer: s.spokenBuffer + a.text };
+    case "status":      return { ...s, status: a.value };
+    case "micOn":       return { ...s, micOn: a.value };
+    case "heardChunk":  return { ...s, heardBuffer: s.heardBuffer + a.text };
+    case "spokenChunk": return { ...s, spokenBuffer: s.spokenBuffer + a.text };
     case "turnComplete": {
-      // turn 종료: 버퍼들을 최종 표시 값으로 옮김. 둘 다 비어있으면 보존(에코 방지 false-fire).
-      const lastHeard = s.heardBuffer.trim() || s.lastHeard;
+      const lastHeard  = s.heardBuffer.trim()  || s.lastHeard;
       const lastSpoken = s.spokenBuffer.trim() || s.lastSpoken;
-      return {
-        ...s,
-        heardBuffer: "",
-        spokenBuffer: "",
-        lastHeard,
-        lastSpoken,
-        amplitude: 0,
-      };
+      return { ...s, heardBuffer: "", spokenBuffer: "", lastHeard, lastSpoken };
     }
-    case "interrupted":
-      // 학생이 도중에 말 끊으면: 진행 중 답변 버퍼 비우고 amplitude 0.
-      return { ...s, spokenBuffer: "", amplitude: 0 };
-    case "error":
-      return { ...s, errorMsg: a.message };
-    case "clearError":
-      return { ...s, errorMsg: null };
+    case "interrupted": return { ...s, spokenBuffer: "" };
+    case "error":       return { ...s, errorMsg: a.message };
+    case "clearError":  return { ...s, errorMsg: null };
   }
 }
 
 export function Sarangchae() {
   const [state, dispatch] = useReducer(reducer, initial);
+  const [avatarStream, setAvatarStream] = useState<MediaStream | null>(null);
 
-  const recorderRef = useRef<AudioRecorder | null>(null);
-  const playerRef = useRef<AudioPlayer | null>(null);
-  const sessionRef = useRef<GeminiLiveDirect | null>(null);
-  const speakingTimerRef = useRef<number | null>(null);
-  const startingRef = useRef(false);
+  const recorderRef   = useRef<AudioRecorder | null>(null);
+  const sessionRef    = useRef<GeminiLiveDirect | null>(null);
+  const heygenRef     = useRef<HeyGenSession | null>(null);
+  const pendingTextRef = useRef("");
+  const micOnRef      = useRef(false);   // closure-safe mirror of state.micOn
+  const startingRef   = useRef(false);
+  const videoRef      = useRef<HTMLVideoElement>(null);
 
-  // === Player 초기화 ===================================================
+  // micOnRef 동기화
+  useEffect(() => { micOnRef.current = state.micOn; }, [state.micOn]);
+
+  // HeyGen 스트림 → video 엘리먼트에 연결
   useEffect(() => {
-    const player = new AudioPlayer();
-    player.onAmplitude = (level) => {
-      dispatch({ type: "amplitude", value: level });
-      if (speakingTimerRef.current !== null) window.clearTimeout(speakingTimerRef.current);
-      if (level > 0) {
-        speakingTimerRef.current = window.setTimeout(() => {
-          dispatch({ type: "amplitude", value: 0 });
-        }, 1200);
-      }
-    };
-    playerRef.current = player;
-    dispatch({ type: "status", value: "idle" });
+    if (videoRef.current && avatarStream) {
+      videoRef.current.srcObject = avatarStream;
+    }
+  }, [avatarStream]);
 
+  // 언마운트 정리
+  useEffect(() => {
     return () => {
-      if (speakingTimerRef.current !== null) window.clearTimeout(speakingTimerRef.current);
       recorderRef.current?.stop();
-      recorderRef.current = null;
       sessionRef.current?.close();
-      sessionRef.current = null;
-      player.destroy();
-      playerRef.current = null;
+      heygenRef.current?.stop().catch(() => {});
     };
   }, []);
 
-  // === 라이브 토글 =====================================================
-  // ON : Gemini Live 세션 열기 + 마이크 PCM 실시간 스트리밍
-  // OFF: 마이크 + 세션 종료
-  // VAD가 학생 발화 끝을 자동 감지 → 정약용이 음성으로 바로 응답.
-
+  // ── 대화 시작 ────────────────────────────────────────────────────────────
   const startLive = async () => {
     if (startingRef.current || state.micOn) return;
     startingRef.current = true;
-    const player = playerRef.current;
-    if (!player) { startingRef.current = false; return; }
-
-    // 기존 세션 정리
-    sessionRef.current?.close();
-    sessionRef.current = null;
-    player.reset();
+    dispatch({ type: "status", value: "loading" });
 
     try {
-      await player.ensureContext();
+      // 1) HeyGen 세션
+      const heygen = new HeyGenSession();
+      heygen.onStream    = (stream) => setAvatarStream(stream);
+      heygen.onTalkStart = () => dispatch({ type: "status", value: "speaking" });
+      heygen.onTalkEnd   = () =>
+        dispatch({ type: "status", value: micOnRef.current ? "listening" : "idle" });
+      await heygen.start();
+      heygenRef.current = heygen;
 
+      // 2) Gemini Live 세션
+      sessionRef.current?.close();
       const session = new GeminiLiveDirect();
       session.on({
-        onAudio: (b64) => player.play(b64),
-        onOutputTranscript: (text) => dispatch({ type: "spokenChunk", text }),
-        onTurnComplete: () => dispatch({ type: "turnComplete" }),
-        onInterrupted: () => { player.reset(); dispatch({ type: "interrupted" }); },
+        onAudio: () => {
+          // A방식: Gemini 오디오 무시 — HeyGen TTS가 대신 말함
+        },
+        onOutputTranscript: (text) => {
+          dispatch({ type: "spokenChunk", text });
+          pendingTextRef.current += text;
+        },
+        onTurnComplete: async () => {
+          const text = pendingTextRef.current.trim();
+          pendingTextRef.current = "";
+          dispatch({ type: "turnComplete" });
+          if (text) await heygenRef.current?.speak(text);
+        },
+        onInterrupted: () => {
+          heygenRef.current?.interrupt().catch(() => {});
+          pendingTextRef.current = "";
+          dispatch({ type: "interrupted" });
+        },
         onClose: () => {
-          // 예상치 못한 세션 종료 → idle로
           sessionRef.current = null;
           dispatch({ type: "micOn", value: false });
           dispatch({ type: "status", value: "idle" });
@@ -155,11 +133,10 @@ export function Sarangchae() {
           dispatch({ type: "error", message: `연결 오류: ${err.message}` });
         },
       });
-
       await session.connect();
       sessionRef.current = session;
 
-      // 마이크 → PCM 청크를 실시간으로 Gemini에 스트리밍
+      // 3) 마이크 → Gemini 스트리밍
       const rec = new AudioRecorder();
       rec.onChunk = (b64) => session.sendAudio(b64);
       await rec.start();
@@ -171,41 +148,40 @@ export function Sarangchae() {
     } catch (err) {
       sessionRef.current?.close();
       sessionRef.current = null;
+      heygenRef.current?.stop().catch(() => {});
+      heygenRef.current = null;
+      setAvatarStream(null);
       dispatch({ type: "error", message: formatMicError(err) });
+      dispatch({ type: "status", value: "idle" });
     } finally {
       startingRef.current = false;
     }
   };
 
+  // ── 대화 종료 ────────────────────────────────────────────────────────────
   const stopLive = () => {
     recorderRef.current?.stop();
     recorderRef.current = null;
     sessionRef.current?.close();
     sessionRef.current = null;
-    playerRef.current?.reset();
+    heygenRef.current?.stop().catch(() => {});
+    heygenRef.current = null;
+    pendingTextRef.current = "";
+    setAvatarStream(null);
     dispatch({ type: "micOn", value: false });
     dispatch({ type: "status", value: "idle" });
   };
 
-  // === amplitude → speaking 상태 자동 갱신 ============================
-  useEffect(() => {
-    if (state.amplitude > 0 && state.status !== "speaking") {
-      dispatch({ type: "status", value: "speaking" });
-    } else if (state.amplitude === 0 && state.status === "speaking") {
-      dispatch({ type: "status", value: state.micOn ? "listening" : "idle" });
-    }
-  }, [state.amplitude, state.status, state.micOn]);
-
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-[#1a0e0a]">
-      {/* 다산초당 실내 배경 */}
+      {/* 배경 */}
       <div
         className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat"
         style={{ backgroundImage: "url('/images/background.png')" }}
       />
       <div className="pointer-events-none absolute inset-0 z-[1] bg-black/25" />
 
-      {/* 다산초당으로 */}
+      {/* 뒤로가기 */}
       <Link
         to="/landing"
         className="absolute top-4 left-4 z-50 rounded-sm border border-gold-soft/40 bg-wood/80 px-3 py-1.5 text-sm text-gold transition hover:bg-wood-2"
@@ -213,36 +189,41 @@ export function Sarangchae() {
         ← 다산초당
       </Link>
 
-      {/* 상단 상태 표시 */}
+      {/* 상태 배지 */}
       <StatusBadge status={state.status} />
 
-      {/* 정약용 캐릭터 */}
-      <Character
-        amplitude={state.amplitude}
-        speaking={state.status === "speaking"}
-      />
+      {/* 아바타 또는 기본 캐릭터 */}
+      {avatarStream ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          className="absolute bottom-28 left-1/2 z-10 -translate-x-1/2 max-h-[62vh] w-auto rounded-lg shadow-[0_8px_40px_rgba(0,0,0,0.7)]"
+        />
+      ) : (
+        <Character
+          amplitude={0}
+          speaking={state.status === "speaking"}
+        />
+      )}
 
-      {/* 학생 발화 인식 (좌측 상단) */}
+      {/* 학생 발화 자막 (좌) */}
       {(state.heardBuffer || state.lastHeard) && (
         <div className="hanji-surface scroll-zone absolute top-24 left-6 z-40 max-h-[35vh] w-[28rem] overflow-y-auto rounded-sm border border-gold-soft/50 p-4 text-ink shadow-[0_4px_12px_rgba(0,0,0,0.35)]">
           <div className="mb-1 text-xs font-bold text-jade tracking-wide">학생 (자네)</div>
-          <div className="text-base leading-relaxed">
-            {state.heardBuffer || state.lastHeard}
-          </div>
+          <div className="text-base leading-relaxed">{state.heardBuffer || state.lastHeard}</div>
         </div>
       )}
 
-      {/* 선생님 답변 자막 (우측 상단) */}
+      {/* 선생님 답변 자막 (우) */}
       {(state.spokenBuffer || state.lastSpoken) && (
         <div className="hanji-surface scroll-zone absolute top-24 right-6 z-40 max-h-[35vh] w-[28rem] overflow-y-auto rounded-sm border border-gold-soft/50 p-4 text-ink shadow-[0_4px_12px_rgba(0,0,0,0.35)]">
           <div className="mb-1 text-xs font-bold text-seal tracking-wide">정약용</div>
-          <div className="text-base leading-relaxed">
-            {state.spokenBuffer || state.lastSpoken}
-          </div>
+          <div className="text-base leading-relaxed">{state.spokenBuffer || state.lastSpoken}</div>
         </div>
       )}
 
-      {/* 에러 표시 */}
+      {/* 에러 */}
       {state.errorMsg && (
         <div className="absolute bottom-28 left-1/2 z-50 -translate-x-1/2 rounded-sm border border-seal/60 bg-wood/90 px-4 py-2 text-sm text-parchment">
           {state.errorMsg}
@@ -255,45 +236,56 @@ export function Sarangchae() {
         </div>
       )}
 
-      {/* 하단 컨트롤 바 */}
+      {/* 하단 컨트롤 */}
       <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-6">
         <div className="lacquer-surface mx-auto flex w-full max-w-3xl flex-col items-center justify-center gap-2 rounded-md px-5 py-4">
           <button
             onClick={() => (state.micOn ? stopLive() : startLive())}
+            disabled={state.status === "loading"}
             className={`relative flex h-20 w-20 select-none items-center justify-center rounded-full border-2 transition-all duration-200 ${
               state.micOn
                 ? "border-seal-bright bg-seal text-parchment shadow-[0_0_32px_rgba(139,26,26,0.7)] scale-110"
+                : state.status === "loading"
+                ? "border-gold-soft/40 bg-wood-2/70 text-gold/50 cursor-wait"
                 : "border-gold-soft/40 bg-wood-2/70 text-gold hover:bg-wood-2 hover:scale-105"
             }`}
             aria-label={state.micOn ? "대화 종료" : "대화 시작"}
             aria-pressed={state.micOn}
           >
-            {state.micOn ? <PhoneOffIcon /> : <PhoneIcon />}
+            {state.status === "loading" ? (
+              <LoadingIcon />
+            ) : state.micOn ? (
+              <PhoneOffIcon />
+            ) : (
+              <PhoneIcon />
+            )}
             {state.micOn && (
               <span className="pointer-events-none absolute inset-0 animate-ping rounded-full bg-seal/30" />
             )}
           </button>
           <div className="text-center text-sm text-parchment/80">
-            {state.micOn
+            {state.status === "loading"
+              ? "선생님을 모시는 중… 잠시만 기다리시구려"
+              : state.micOn
               ? state.status === "speaking"
                 ? "선생님 말씀 중… 기다리시구려"
                 : "말씀하시구려 — 잠시 멈추면 선생님이 답하시리"
               : "버튼을 눌러 다산 선생님과 대화를 시작하시구려"}
           </div>
         </div>
-
       </div>
     </div>
   );
 }
 
+// ── 유틸 ────────────────────────────────────────────────────────────────────
 
 function formatMicError(err: unknown): string {
-  if (!(err instanceof Error)) return `마이크를 켤 수 없네: ${String(err)}`;
+  if (!(err instanceof Error)) return `오류: ${String(err)}`;
   switch (err.name) {
     case "NotAllowedError":
     case "PermissionDeniedError":
-      return "마이크 사용 권한이 거부되었네. 주소창의 자물쇠 아이콘에서 마이크를 허용해 주시구려.";
+      return "마이크 사용 권한이 거부되었네. 주소창 자물쇠 아이콘에서 마이크를 허용해 주시구려.";
     case "NotFoundError":
       return "마이크 장치를 찾지 못하였네. 마이크가 연결되어 있는지 살펴 주시구려.";
     case "NotSupportedError":
@@ -301,18 +293,19 @@ function formatMicError(err: unknown): string {
     case "SecurityError":
       return "https가 아니어서 마이크를 쓸 수 없네.";
     default:
-      return `마이크를 켤 수 없네: ${err.message}`;
+      return `오류: ${err.message}`;
   }
 }
 
 function StatusBadge({ status }: { status: Status }) {
-  const conf: Record<
-    Status,
-    { text: string; cls: string }
-  > = {
+  const conf: Record<Status, { text: string; cls: string }> = {
     idle: {
       text: "버튼을 눌러 다산 선생님과 대화를 시작하시구려",
       cls: "bg-wood/70 text-gold",
+    },
+    loading: {
+      text: "⏳ 선생님을 모시는 중…",
+      cls: "bg-wood/70 text-gold animate-pulse",
     },
     listening: {
       text: "🎤 말씀하시구려 — 잠시 멈추면 선생님이 답하시리",
@@ -330,6 +323,15 @@ function StatusBadge({ status }: { status: Status }) {
     >
       {c.text}
     </div>
+  );
+}
+
+function LoadingIcon() {
+  return (
+    <svg className="h-8 w-8 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
   );
 }
 
