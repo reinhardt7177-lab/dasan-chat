@@ -216,22 +216,6 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
-        {/* 빠른 질문 버튼 */}
-        <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-2 pb-1">
-          <div className="mb-1.5 text-xs" style={{ color: "#7a6e58" }}>💡 이런 것도 물어볼 수 있어요</div>
-          <div className="flex flex-wrap gap-1.5">
-            {QUICK_QUESTIONS.map((q) => (
-              <button
-                key={q} type="button" disabled={isWaiting} onClick={() => send(q)}
-                className="quick-btn rounded-full px-3 py-1.5 text-xs transition disabled:opacity-40"
-                style={{ background: "#ede7d5", border: "1px solid #c8b98a", color: "#7a3b1e" }}
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* 구분선 */}
         <div className="mx-auto my-2 flex w-full max-w-3xl shrink-0 items-center gap-2 px-4">
           <div className="h-px flex-1" style={{ background: "#c8b98a", opacity: .4 }} />
@@ -249,8 +233,26 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        {/* 빠른 질문 — 입력창 바로 위 (학생 동선 단축) */}
+        <div className="shrink-0" style={{ borderTop: "1px solid #c8b98a", background: "linear-gradient(to bottom,rgba(42,24,16,.04),transparent)" }}>
+          <div className="mx-auto w-full max-w-3xl px-4 pt-2 pb-1.5">
+            <div className="mb-1.5 text-xs" style={{ color: "#7a6e58" }}>💡 이런 것도 물어볼 수 있어요</div>
+            <div className="flex flex-wrap gap-1.5">
+              {QUICK_QUESTIONS.map((q) => (
+                <button
+                  key={q} type="button" disabled={isWaiting} onClick={() => send(q)}
+                  className="quick-btn rounded-full px-3 py-1.5 text-xs transition disabled:opacity-40"
+                  style={{ background: "#ede7d5", border: "1px solid #c8b98a", color: "#7a3b1e" }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* 입력 — 풀폭 배경 + 가운데 max-w-3xl 폼 */}
-        <div className="shrink-0" style={{ borderTop: "1px solid #c8b98a", background: "linear-gradient(to top,rgba(42,24,16,.06),transparent)" }}>
+        <div className="shrink-0" style={{ background: "linear-gradient(to top,rgba(42,24,16,.06),transparent)" }}>
           <form onSubmit={onSubmit} className="mx-auto flex w-full max-w-3xl items-end gap-2 p-3">
             <textarea
               ref={inputRef} rows={1} autoComplete="off" disabled={isWaiting}
