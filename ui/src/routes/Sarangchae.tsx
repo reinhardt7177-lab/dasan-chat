@@ -9,13 +9,19 @@ const EMBED_URL =
 
 export function Sarangchae() {
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-[#1a0e0a]">
-      {/* 배경 */}
-      <div
-        className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat"
-        style={{ backgroundImage: "url('/images/background.png')" }}
+    <div className="relative h-screen w-screen overflow-hidden bg-black">
+      {/* 산타 임베드 풀화면 — cover 효과로 viewport 가득 채움 (가로/세로 중
+          큰 쪽에 맞춰 16:9 비율 유지, 짧은 축은 살짝 잘림). */}
+      <iframe
+        src={EMBED_URL}
+        allow="camera; microphone; autoplay; encrypted-media"
+        className="absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2 border-0"
+        style={{
+          width: "max(100vw, calc(100vh * 16 / 9))",
+          height: "max(100vh, calc(100vw * 9 / 16))",
+        }}
+        title="다산 선생님과 대화"
       />
-      <div className="pointer-events-none absolute inset-0 z-[1] bg-black/25" />
 
       {/* 뒤로가기 */}
       <Link
@@ -24,22 +30,6 @@ export function Sarangchae() {
       >
         ← 다산초당
       </Link>
-
-      {/* 상단 안내 배지 */}
-      <div className="absolute top-4 left-1/2 z-40 -translate-x-1/2 rounded-sm border border-gold/40 bg-wood/70 px-4 py-1.5 text-sm tracking-wide text-gold backdrop-blur-md">
-        다산 선생님과 대화를 나누시구려
-      </div>
-
-      {/* 산타 임베드 — 화면 가운데. 다산 아바타 준비되면 교체. */}
-      <div className="absolute inset-0 z-[2] flex items-center justify-center pt-12">
-        <iframe
-          src={EMBED_URL}
-          allow="camera; microphone; autoplay; encrypted-media"
-          className="aspect-video rounded-lg border border-gold-soft/40 shadow-[0_12px_48px_rgba(0,0,0,0.75)]"
-          style={{ width: "min(75vw, calc(80vh * 16 / 9))" }}
-          title="다산 선생님과 대화"
-        />
-      </div>
     </div>
   );
 }
