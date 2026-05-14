@@ -66,7 +66,7 @@ def create_app() -> FastAPI:
     index_file = SPA_DIR / "index.html"
 
     @app.get("/{full_path:path}")
-    async def spa_fallback(full_path: str) -> FileResponse | JSONResponse:  # noqa: ARG001
+    async def spa_fallback(full_path: str):  # noqa: ARG001
         if index_file.exists():
             return FileResponse(index_file)
         return JSONResponse({"detail": "SPA not built"}, status_code=404)
