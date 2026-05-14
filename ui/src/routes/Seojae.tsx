@@ -182,10 +182,10 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center px-3">
+    <div className="absolute inset-0 z-10">
       <div
-        className="chat-panel-rise flex h-[90vh] w-full flex-col overflow-hidden rounded-lg"
-        style={{ maxWidth: 720, background: "#f5f0e8", border: "1.5px solid #c8b98a", boxShadow: "0 20px 60px rgba(0,0,0,0.7)" }}
+        className="chat-panel-rise flex h-full w-full flex-col overflow-hidden"
+        style={{ background: "#f5f0e8" }}
       >
         {/* 헤더 */}
         <div className="relative shrink-0 px-5 py-3 text-center" style={{ borderBottom: "1px solid #c8b98a", background: "linear-gradient(to bottom,rgba(42,24,16,.08),transparent)" }}>
