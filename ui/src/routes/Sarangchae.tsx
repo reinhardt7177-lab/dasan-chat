@@ -77,12 +77,22 @@ export function Sarangchae() {
     }
   }, [avatarStream]);
 
-  // 언마운트 정리
+  // 페이지 로드 시 HeyGen 아바타 자동 시작
   useEffect(() => {
+    const heygen = new HeyGenSession();
+    heygen.onStream    = (stream) => setAvatarStream(stream);
+    heygen.onTalkStart = () => dispatch({ type: "status", value: "speaking" });
+    heygen.onTalkEnd   = () =>
+      dispatch({ type: "status", value: micOnRef.current ? "listening" : "idle" });
+    heygen.start().catch((err) => {
+      dispatch({ type: "error", message: `아바타 연결 실패: ${err instanceof Error ? err.message : String(err)}` });
+    });
+    heygenRef.current = heygen;
+
     return () => {
       recorderRef.current?.stop();
       sessionRef.current?.close();
-      heygenRef.current?.stop().catch(() => {});
+      heygen.stop().catch(() => {});
     };
   }, []);
 
@@ -93,16 +103,7 @@ export function Sarangchae() {
     dispatch({ type: "status", value: "loading" });
 
     try {
-      // 1) HeyGen 세션
-      const heygen = new HeyGenSession();
-      heygen.onStream    = (stream) => setAvatarStream(stream);
-      heygen.onTalkStart = () => dispatch({ type: "status", value: "speaking" });
-      heygen.onTalkEnd   = () =>
-        dispatch({ type: "status", value: micOnRef.current ? "listening" : "idle" });
-      await heygen.start();
-      heygenRef.current = heygen;
-
-      // 2) Gemini Live 세션
+      // Gemini Live 세션 (HeyGen은 이미 마운트 시 시작됨)
       sessionRef.current?.close();
       const session = new GeminiLiveDirect();
       session.on({
@@ -148,9 +149,6 @@ export function Sarangchae() {
     } catch (err) {
       sessionRef.current?.close();
       sessionRef.current = null;
-      heygenRef.current?.stop().catch(() => {});
-      heygenRef.current = null;
-      setAvatarStream(null);
       dispatch({ type: "error", message: formatMicError(err) });
       dispatch({ type: "status", value: "idle" });
     } finally {
@@ -158,16 +156,13 @@ export function Sarangchae() {
     }
   };
 
-  // ── 대화 종료 ────────────────────────────────────────────────────────────
+  // ── 대화 종료 (아바타는 유지, 마이크+Gemini만 종료) ───────────────────────
   const stopLive = () => {
     recorderRef.current?.stop();
     recorderRef.current = null;
     sessionRef.current?.close();
     sessionRef.current = null;
-    heygenRef.current?.stop().catch(() => {});
-    heygenRef.current = null;
     pendingTextRef.current = "";
-    setAvatarStream(null);
     dispatch({ type: "micOn", value: false });
     dispatch({ type: "status", value: "idle" });
   };
