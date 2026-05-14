@@ -10,15 +10,15 @@ const EMBED_URL =
 export function Sarangchae() {
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-black">
-      {/* 산타 임베드 풀화면 — cover 효과로 viewport 가득 채움 (가로/세로 중
-          큰 쪽에 맞춰 16:9 비율 유지, 짧은 축은 살짝 잘림). */}
+      {/* 산타 임베드 — contain 효과로 16:9 콘텐츠 전체(특히 하단 'Chat now'
+          버튼)가 항상 보이도록. 좌우 또는 위아래에 검은 띠. */}
       <iframe
         src={EMBED_URL}
         allow="camera; microphone; autoplay; encrypted-media"
         className="absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2 border-0"
         style={{
-          width: "max(100vw, calc(100vh * 16 / 9))",
-          height: "max(100vh, calc(100vw * 9 / 16))",
+          width: "min(100vw, calc(100vh * 16 / 9))",
+          height: "min(100vh, calc(100vw * 9 / 16))",
         }}
         title="다산 선생님과 대화"
       />
