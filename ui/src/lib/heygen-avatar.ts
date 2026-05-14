@@ -5,11 +5,16 @@ const AVATAR_ID = "1c690fe7-23e0-49f9-bfba-14344450285b";
 const API_KEY = import.meta.env.VITE_HEYGEN_API_KEY as string;
 
 async function fetchAccessToken(): Promise<string> {
+  // Enterprise: API key → 서버에서 토큰 발급
+  // Starter/Trial: API key를 토큰으로 직접 사용
   const res = await fetch("https://api.heygen.com/v1/streaming.create_token", {
     method: "POST",
     headers: { "x-api-key": API_KEY },
   });
-  if (!res.ok) throw new Error(`HeyGen 토큰 발급 실패: ${res.status}`);
+  if (!res.ok) {
+    // 토큰 교환 실패 시 키를 토큰으로 직접 사용 (Starter/Trial 플랜)
+    return API_KEY;
+  }
   const json = (await res.json()) as { data: { token: string } };
   return json.data.token;
 }
