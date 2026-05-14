@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import type React from "react";
 import { Link } from "react-router-dom";
 
 import { postChat } from "../lib/api";
@@ -9,7 +10,16 @@ import { toApiHistory, useChatStore } from "../store/chat";
 // 패턴은 Landing.tsx 의 DoorOverlay 와 동일.
 
 const GREETING =
-  "허허, 어서 오게나. 무엇이 궁금한지 글로 적어 보시구려.";
+  "나의 꼬마 학자들아, 어서 오너라!\n\n나는 조선의 학자 정약용이니라. 강진 유배지에서 경세유표를 쓰며 더 나은 세상을 꿈꿨단다.\n\n오늘 너희가 만들 어린이 경세유표에 대해 무엇이든 물어보거라. 정책 아이디어, 상호 호혜, 실사구시… 무엇이든 함께 고민해보겠노라!";
+
+const QUICK_QUESTIONS = [
+  "경세유표가 뭐예요?",
+  "우리 정책에 상호 호혜가 담겼는지 봐주세요",
+  "실사구시가 무슨 뜻이에요?",
+  "전남과 광주가 함께 할 수 있는 정책 아이디어를 주세요",
+  "정약용 선생님은 강진에서 어떻게 지내셨어요?",
+  "우리 정책이 지속 가능한지 확인해주세요",
+];
 
 export function Seojae() {
   const [opened, setOpened] = useState(false);
@@ -196,131 +206,183 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
   const { messages, isWaiting, error, pushUser, pushModel, setWaiting, setError } =
     useChatStore();
   const [input, setInput] = useState("");
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  // ESC 키로도 패널 닫기.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // 메시지 추가될 때마다 맨 아래로 스크롤.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages.length, isWaiting]);
 
-  // 패널 열리자마자 입력 포커스.
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || isWaiting) return;
+  const autoResize = (el: HTMLTextAreaElement) => {
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  };
 
+  const send = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isWaiting) return;
     setError(null);
-    pushUser(text);
+    pushUser(trimmed);
     setInput("");
+    if (inputRef.current) { inputRef.current.style.height = "auto"; }
     setWaiting(true);
-
     try {
-      // 직전까지의 히스토리만 보낸다(현재 메시지는 서버가 별도 message 인자로 받음).
       const history = toApiHistory(useChatStore.getState().messages.slice(0, -1));
-      const { reply } = await postChat(text, history);
-      const trimmed = (reply ?? "").trim();
-      if (!trimmed) {
-        setError("선생님이 침묵하시네. 다시 여쭙어 주시구려.");
-      } else {
-        pushModel(trimmed);
-      }
+      const { reply } = await postChat(trimmed, history);
+      const r = (reply ?? "").trim();
+      if (!r) setError("선생님이 침묵하시네. 다시 여쭙어 주시구려.");
+      else pushModel(r);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(`답변을 받지 못하였네: ${msg}`);
+      setError(`답변을 받지 못하였네: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setWaiting(false);
       inputRef.current?.focus();
     }
   };
 
-  return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center">
-      <div className="chat-panel-rise hanji-surface flex h-[80vh] w-[92vw] flex-col overflow-hidden rounded-md border border-gold-soft/60 shadow-[0_20px_60px_rgba(0,0,0,0.7)] md:h-[36rem] md:w-[44rem]">
-        {/* 헤더 */}
-        <div className="relative border-b border-gold-soft/30 bg-gradient-to-b from-wood/15 to-transparent px-5 py-3 text-center">
-          <div className="brush text-2xl text-ink">정약용 선생님과의 문답</div>
-          <div className="mt-1 text-xs tracking-[0.3em] text-seal">
-            — 글로 여쭙기 —
-          </div>
+  const onSubmit = (e: FormEvent) => { e.preventDefault(); send(input); };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
+  };
 
-          {/* 닫기 (책 덮기) */}
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center px-3">
+      <div
+        className="chat-panel-rise flex h-[90vh] w-full max-w-[720px] flex-col overflow-hidden rounded-lg shadow-[0_20px_60px_rgba(0,0,0,0.7)]"
+        style={{ background: "#f5f0e8", border: "1.5px solid #c8b98a" }}
+      >
+        {/* 헤더 */}
+        <div
+          className="relative shrink-0 px-5 py-3 text-center"
+          style={{ borderBottom: "1px solid #c8b98a", background: "linear-gradient(to bottom, rgba(42,24,16,0.08), transparent)" }}
+        >
+          <div
+            className="mb-0.5 inline-block rounded-sm px-3 py-0.5 text-[11px] tracking-widest"
+            style={{ background: "#7a3b1e", color: "#f5f0e8" }}
+          >
+            AI 정약용 서재 · 다산초당
+          </div>
+          <div className="brush text-xl" style={{ color: "#7a3b1e" }}>
+            📚 정약용 선생님께 여쭤보세요
+          </div>
+          <div className="mt-0.5 text-xs" style={{ color: "#7a6e58" }}>
+            어린이 경세유표를 만들 때 궁금한 것을 정약용 선생님께 질문해 보세요.
+          </div>
+          {/* 닫기 */}
           <button
             type="button"
             onClick={onClose}
             aria-label="문답록 덮기 (ESC)"
             title="문답록 덮기 (ESC)"
-            className="absolute top-1/2 right-3 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-sm border border-gold-soft/40 bg-parchment/40 text-ink/70 transition hover:border-seal/60 hover:bg-seal/10 hover:text-seal"
+            className="absolute top-1/2 right-3 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-sm transition hover:opacity-70"
+            style={{ border: "1px solid #c8b98a", color: "#7a3b1e" }}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-4 w-4"
-            >
-              <line x1="6" y1="6" x2="18" y2="18" />
-              <line x1="6" y1="18" x2="18" y2="6" />
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+              <line x1="6" y1="6" x2="18" y2="18" /><line x1="6" y1="18" x2="18" y2="6" />
             </svg>
           </button>
+        </div>
+
+        {/* 탐구질문 배너 */}
+        <div
+          className="relative mx-4 mt-3 shrink-0 overflow-hidden rounded"
+          style={{ border: "1.5px solid #c49a3c", background: "linear-gradient(135deg, #fffbf0 0%, #f5eed8 100%)", padding: "10px 16px" }}
+        >
+          <div className="absolute -top-1 left-2 font-serif text-4xl opacity-20" style={{ color: "#c49a3c" }}>❝</div>
+          <div className="text-[11px] font-bold tracking-wide mb-1" style={{ color: "#c49a3c" }}>오늘의 탐구질문</div>
+          <div className="font-serif text-sm font-bold leading-snug" style={{ color: "#7a3b1e" }}>
+            꼬마 정약용으로서 전남광주통합특별시를 위한<br />어린이 경세유표를 어떻게 만들 수 있을까?
+          </div>
+        </div>
+
+        {/* 빠른 질문 버튼 */}
+        <div className="shrink-0 px-4 pt-2 pb-1">
+          <div className="mb-1.5 text-xs" style={{ color: "#7a6e58" }}>💡 이런 것도 물어볼 수 있어요</div>
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_QUESTIONS.map((q) => (
+              <button
+                key={q}
+                type="button"
+                disabled={isWaiting}
+                onClick={() => send(q)}
+                className="rounded-full px-3 py-1.5 text-xs transition hover:text-white disabled:opacity-40"
+                style={{ background: "#ede7d5", border: "1px solid #c8b98a", color: "#7a3b1e" }}
+                onMouseEnter={(e) => { (e.currentTarget.style.background = "#7a3b1e"); (e.currentTarget.style.color = "#fff"); }}
+                onMouseLeave={(e) => { (e.currentTarget.style.background = "#ede7d5"); (e.currentTarget.style.color = "#7a3b1e"); }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 구분선 */}
+        <div className="mx-4 my-2 flex shrink-0 items-center gap-2">
+          <div className="h-px flex-1 opacity-40" style={{ background: "#c8b98a" }} />
+          <span className="text-xs" style={{ color: "#7a6e58" }}>✦ 대화창 ✦</span>
+          <div className="h-px flex-1 opacity-40" style={{ background: "#c8b98a" }} />
         </div>
 
         {/* 메시지 영역 */}
         <div
           ref={scrollRef}
-          className="scroll-zone flex-1 space-y-3 overflow-y-auto px-5 py-4 text-ink"
+          className="scroll-zone flex-1 space-y-3 overflow-y-auto px-4 pb-3"
+          style={{ background: "rgba(255,253,248,0.8)" }}
         >
-          {/* 첫 인사 — store에는 안 담는다 (서버 history에도 보낼 필요 없음). */}
           <MessageRow role="model" text={GREETING} />
           {messages.map((m) => (
             <MessageRow key={m.id} role={m.role} text={m.text} />
           ))}
           {isWaiting && <TypingRow />}
-          {error && (
-            <div className="py-1 text-center text-xs text-seal">({error})</div>
-          )}
+          {error && <div className="py-1 text-center text-xs" style={{ color: "#7a3b1e" }}>({error})</div>}
         </div>
 
         {/* 입력 */}
         <form
           onSubmit={onSubmit}
-          className="flex gap-2 border-t border-gold-soft/30 bg-gradient-to-t from-wood/10 to-transparent p-3"
+          className="flex shrink-0 items-end gap-2 p-3"
+          style={{ borderTop: "1px solid #c8b98a", background: "linear-gradient(to top, rgba(42,24,16,0.06), transparent)" }}
         >
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
+            rows={1}
             autoComplete="off"
-            required
             disabled={isWaiting}
-            placeholder="여기에 글을 적어 보시구려…"
+            placeholder="정약용 선생님께 질문해보세요… (예: 우리 모둠 정책을 봐주세요)"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            className="flex-grow rounded-sm border border-gold-soft/40 bg-white/60 px-3 py-2 text-ink placeholder:text-gold-soft/70 placeholder:italic transition focus:border-gold focus:bg-white/80 focus:outline-none disabled:opacity-50"
+            onChange={(e) => { setInput(e.target.value); autoResize(e.target); }}
+            onKeyDown={onKeyDown}
+            className="flex-grow resize-none rounded-md px-3 py-2 text-sm leading-relaxed transition focus:outline-none disabled:opacity-50"
+            style={{
+              border: "1.5px solid #c8b98a", background: "#fffdf8",
+              color: "#1a1208", minHeight: "44px", maxHeight: "120px",
+              fontFamily: "inherit",
+            }}
+            onFocus={(e) => (e.currentTarget.style.borderColor = "#7a3b1e")}
+            onBlur={(e) => (e.currentTarget.style.borderColor = "#c8b98a")}
           />
           <button
             type="submit"
             disabled={isWaiting || !input.trim()}
-            className="rounded-sm bg-seal px-4 py-2 text-parchment shadow-[0_2px_8px_rgba(139,26,26,0.4)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-lg text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ background: "#7a3b1e" }}
           >
-            여쭙기
+            ➤
           </button>
         </form>
+
+        <div className="shrink-0 py-2 text-center text-[11px]" style={{ color: "#7a6e58" }}>
+          Enter 키로 전송 · Shift+Enter로 줄바꿈
+        </div>
       </div>
     </div>
   );
@@ -329,17 +391,29 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
 function MessageRow({ role, text }: { role: "user" | "model"; text: string }) {
   const isUser = role === "user";
   return (
-    <div className="msg-row flex items-start gap-2">
+    <div className={`msg-row flex items-start gap-2 ${isUser ? "flex-row-reverse" : ""}`}>
       <div
-        className="mt-1 w-12 shrink-0 text-xs font-bold"
-        style={{ color: isUser ? "var(--color-jade)" : "var(--color-seal)" }}
+        className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base"
+        style={{ border: "1.5px solid #c8b98a", background: isUser ? "#e8f0e0" : "#ede7d5" }}
       >
-        {isUser ? "학생" : "정약용"}
+        {isUser ? "🧒" : "🧑‍🎓"}
       </div>
-      <div
-        className={`whitespace-pre-line rounded-sm px-3 py-2 text-sm leading-relaxed ${isUser ? "bubble-user" : "bubble-master"}`}
-      >
-        {text}
+      <div className="max-w-[78%]">
+        <div
+          className="mb-1 text-[11px] font-bold tracking-wide"
+          style={{ color: isUser ? "#4a6741" : "#7a3b1e", textAlign: isUser ? "right" : "left" }}
+        >
+          {isUser ? "우리 모둠" : "AI 정약용 선생님"}
+        </div>
+        <div
+          className="whitespace-pre-line rounded-xl px-3 py-2 text-sm leading-relaxed"
+          style={isUser
+            ? { background: "#e8f0e0", border: "1px solid rgba(74,103,65,0.4)", color: "#1a1208", borderRadius: "12px 4px 12px 12px" }
+            : { background: "#faf6ee", border: "1px solid rgba(201,154,60,0.4)", color: "#1a1208", fontFamily: "serif", borderRadius: "4px 12px 12px 12px" }
+          }
+        >
+          {text}
+        </div>
       </div>
     </div>
   );
@@ -348,11 +422,19 @@ function MessageRow({ role, text }: { role: "user" | "model"; text: string }) {
 function TypingRow() {
   return (
     <div className="msg-row flex items-start gap-2">
-      <div className="mt-1 w-12 shrink-0 text-xs font-bold text-seal">정약용</div>
-      <div className="bubble-master rounded-sm px-3 py-2 text-sm leading-relaxed">
-        <span className="typing-dot" />
-        <span className="typing-dot" />
-        <span className="typing-dot" />
+      <div
+        className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base"
+        style={{ border: "1.5px solid #c8b98a", background: "#ede7d5" }}
+      >
+        🧑‍🎓
+      </div>
+      <div>
+        <div className="mb-1 text-[11px] font-bold tracking-wide" style={{ color: "#7a3b1e" }}>AI 정약용 선생님</div>
+        <div className="rounded-xl px-3 py-2 text-sm" style={{ background: "#faf6ee", border: "1px solid rgba(201,154,60,0.4)", borderRadius: "4px 12px 12px 12px" }}>
+          <span className="typing-dot" />
+          <span className="typing-dot" />
+          <span className="typing-dot" />
+        </div>
       </div>
     </div>
   );
