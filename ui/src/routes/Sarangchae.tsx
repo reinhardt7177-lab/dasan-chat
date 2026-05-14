@@ -57,7 +57,7 @@ function reducer(s: State, a: Action): State {
 
 export function Sarangchae() {
   const [state, dispatch] = useReducer(reducer, initial);
-  const [avatarStream, setAvatarStream] = useState<MediaStream | null>(null);
+  const [avatarReady, setAvatarReady] = useState(false);
 
   const recorderRef   = useRef<AudioRecorder | null>(null);
   const sessionRef    = useRef<GeminiLiveDirect | null>(null);
@@ -70,23 +70,20 @@ export function Sarangchae() {
   // micOnRef 동기화
   useEffect(() => { micOnRef.current = state.micOn; }, [state.micOn]);
 
-  // HeyGen 스트림 → video 엘리먼트에 연결
-  useEffect(() => {
-    if (videoRef.current && avatarStream) {
-      videoRef.current.srcObject = avatarStream;
-    }
-  }, [avatarStream]);
-
   // 페이지 로드 시 HeyGen 아바타 자동 시작
   useEffect(() => {
     const heygen = new HeyGenSession();
-    heygen.onStream    = (stream) => setAvatarStream(stream);
     heygen.onTalkStart = () => dispatch({ type: "status", value: "speaking" });
     heygen.onTalkEnd   = () =>
       dispatch({ type: "status", value: micOnRef.current ? "listening" : "idle" });
-    heygen.start().catch((err) => {
-      dispatch({ type: "error", message: `아바타 연결 실패: ${err instanceof Error ? err.message : String(err)}` });
-    });
+    heygen.start()
+      .then(() => {
+        if (videoRef.current) heygen.attach(videoRef.current);
+        setAvatarReady(true);
+      })
+      .catch((err) => {
+        dispatch({ type: "error", message: `아바타 연결 실패: ${err instanceof Error ? err.message : String(err)}` });
+      });
     heygenRef.current = heygen;
 
     return () => {
@@ -114,14 +111,14 @@ export function Sarangchae() {
           dispatch({ type: "spokenChunk", text });
           pendingTextRef.current += text;
         },
-        onTurnComplete: async () => {
+        onTurnComplete: () => {
           const text = pendingTextRef.current.trim();
           pendingTextRef.current = "";
           dispatch({ type: "turnComplete" });
-          if (text) await heygenRef.current?.speak(text);
+          if (text) heygenRef.current?.speak(text);
         },
         onInterrupted: () => {
-          heygenRef.current?.interrupt().catch(() => {});
+          heygenRef.current?.interrupt();
           pendingTextRef.current = "";
           dispatch({ type: "interrupted" });
         },
@@ -187,15 +184,14 @@ export function Sarangchae() {
       {/* 상태 배지 */}
       <StatusBadge status={state.status} />
 
-      {/* 아바타 또는 기본 캐릭터 */}
-      {avatarStream ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          className="absolute bottom-28 left-1/2 z-10 -translate-x-1/2 max-h-[62vh] w-auto rounded-lg shadow-[0_8px_40px_rgba(0,0,0,0.7)]"
-        />
-      ) : (
+      {/* 아바타 비디오 (항상 DOM에 존재, attach() 호출 후 표시) */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        className={`absolute bottom-28 left-1/2 z-10 -translate-x-1/2 max-h-[62vh] w-auto rounded-lg shadow-[0_8px_40px_rgba(0,0,0,0.7)] ${avatarReady ? "" : "hidden"}`}
+      />
+      {!avatarReady && (
         <Character
           amplitude={0}
           speaking={state.status === "speaking"}

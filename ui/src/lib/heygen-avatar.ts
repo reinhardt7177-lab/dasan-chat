@@ -1,84 +1,67 @@
-import { StreamingAvatarApi, Configuration, NewSessionRequestQualityEnum } from "@heygen/streaming-avatar/dist";
-import type { NewSessionData } from "@heygen/streaming-avatar/dist";
+import { LiveAvatarSession, AgentEventsEnum } from "@heygen/liveavatar-web-sdk";
 
-const AVATAR_ID = "1c690fe7-23e0-49f9-bfba-14344450285b";
+const EMBED_ID = "e9aba2cb-c3d2-46b2-a6ad-970e4ecce41c";
 const API_KEY = import.meta.env.VITE_HEYGEN_API_KEY as string;
 
-async function fetchAccessToken(): Promise<string> {
-  // Enterprise: API key → 서버에서 토큰 발급
-  // Starter/Trial: API key를 토큰으로 직접 사용
-  const res = await fetch("https://api.heygen.com/v1/streaming.create_token", {
+async function fetchSessionToken(): Promise<string> {
+  const res = await fetch("https://api.heygen.com/v1/live_avatar/create_session_token", {
     method: "POST",
-    headers: { "x-api-key": API_KEY },
+    headers: {
+      "x-api-key": API_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ embed_id: EMBED_ID }),
   });
   if (!res.ok) {
-    // 토큰 교환 실패 시 키를 토큰으로 직접 사용 (Starter/Trial 플랜)
-    return API_KEY;
+    const body = await res.text().catch(() => "");
+    throw new Error(`HeyGen ${res.status}: ${body}`);
   }
-  const json = (await res.json()) as { data: { token: string } };
-  return json.data.token;
+  const json = (await res.json()) as {
+    data?: { session_token?: string; token?: string };
+    token?: string;
+    session_token?: string;
+  };
+  const token = json.data?.session_token ?? json.data?.token ?? json.token ?? json.session_token;
+  if (!token) throw new Error(`토큰 필드 없음: ${JSON.stringify(json)}`);
+  return token;
 }
 
 export class HeyGenSession {
-  private api: StreamingAvatarApi | null = null;
-  private sessionData: NewSessionData | null = null;
+  private session: LiveAvatarSession | null = null;
 
-  onStream?: (stream: MediaStream) => void;
   onTalkStart?: () => void;
   onTalkEnd?: () => void;
 
   async start(): Promise<void> {
-    const token = await fetchAccessToken();
-    const config = new Configuration({ accessToken: token });
-    this.api = new StreamingAvatarApi(config);
-
-    this.api.addEventHandler("avatar_start_talking", () => this.onTalkStart?.());
-    this.api.addEventHandler("avatar_stop_talking", () => this.onTalkEnd?.());
-
-    this.sessionData = await this.api.createStartAvatar({
-      newSessionRequest: {
-        quality: NewSessionRequestQualityEnum.Low,
-        avatarName: AVATAR_ID,
-      },
-    });
-
-    const stream = this.api.mediaStream;
-    if (stream) this.onStream?.(stream);
+    const token = await fetchSessionToken();
+    const session = new LiveAvatarSession(token, { voiceChat: false });
+    session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, () => this.onTalkStart?.());
+    session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, () => this.onTalkEnd?.());
+    this.session = session;
+    await session.start();
   }
 
-  async speak(text: string): Promise<void> {
-    if (!this.api || !this.sessionData?.sessionId || !text.trim()) return;
-    await this.api.speak({
-      taskRequest: {
-        text,
-        sessionId: this.sessionData.sessionId,
-        taskType: "repeat",
-      },
-    });
+  attach(el: HTMLMediaElement): void {
+    this.session?.attach(el);
   }
 
-  async interrupt(): Promise<void> {
-    if (!this.api || !this.sessionData?.sessionId) return;
-    try {
-      await this.api.interrupt({
-        interruptRequest: { sessionId: this.sessionData.sessionId },
-      });
-    } catch {
-      // 말 안 하는 중 interrupt 무시
-    }
+  speak(text: string): void {
+    if (!this.session || !text.trim()) return;
+    this.session.repeat(text);
+  }
+
+  interrupt(): void {
+    this.session?.interrupt();
   }
 
   async stop(): Promise<void> {
-    if (!this.api || !this.sessionData?.sessionId) return;
+    if (!this.session) return;
     try {
-      await this.api.stopAvatar({
-        stopSessionRequest: { sessionId: this.sessionData.sessionId },
-      });
+      await this.session.stop();
     } catch {
-      // 이미 끊겼으면 무시
+      // ignore
     } finally {
-      this.api = null;
-      this.sessionData = null;
+      this.session = null;
     }
   }
 }
