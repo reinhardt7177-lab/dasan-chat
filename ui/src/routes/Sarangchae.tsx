@@ -23,12 +23,15 @@ export function Sarangchae() {
         ← 다산초당
       </Link>
 
-      {/* 아바타 임베드 */}
-      <div className="absolute inset-0 z-10 flex items-center justify-center px-6 py-12">
+      {/* 아바타 임베드 — 콘텐츠가 16:9라 aspect-video로 묶어 흰 여백 제거.
+          width를 56rem과 viewport 세로 기준 16:9 중 작은 값으로 제한해
+          좁은 화면에서도 양옆에 다산초당 배경이 보이도록. */}
+      <div className="absolute inset-0 z-10 flex items-center justify-center px-6 py-8">
         <iframe
           src={EMBED_URL}
           allow="camera; microphone; autoplay; encrypted-media"
-          className="h-full max-h-[80vh] w-full max-w-5xl rounded-lg border border-gold-soft/40 shadow-[0_8px_40px_rgba(0,0,0,0.7)]"
+          className="aspect-video w-full rounded-lg border border-gold-soft/40 shadow-[0_12px_48px_rgba(0,0,0,0.75)]"
+          style={{ maxWidth: "min(56rem, calc(85vh * 16 / 9))" }}
           title="다산 선생님과 대화"
         />
       </div>
