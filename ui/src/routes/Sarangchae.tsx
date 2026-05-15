@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 // 다산 아바타 준비되면 EMBED_URL만 교체.
 
 const EMBED_URL =
-  "https://embed.liveavatar.com/v1/e9aba2cb-c3d2-46b2-a6ad-970e4ecce41c?orientation=horizontal";
+  "https://embed.liveavatar.com/v1/cb6af202-f59c-4368-9758-4a552e466e1e?orientation=horizontal";
 
 export function Sarangchae() {
   return (
